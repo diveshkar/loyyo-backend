@@ -27,6 +27,10 @@ const envSchema = Joi.object({
   PAYHERE_SECRET: Joi.string().required(),
   PAYHERE_WEBHOOK_SECRET: Joi.string().required(),
   ALLOWED_ORIGINS: Joi.string().required().description('Comma-separated allowed CORS origins'),
+  CLOUDINARY_CLOUD_NAME: Joi.string().required(),
+  CLOUDINARY_API_KEY: Joi.string().required(),
+  CLOUDINARY_API_SECRET: Joi.string().required(),
+  HUGGING_FACE_API_KEY: Joi.string().required(),
 }).unknown(true);
 
 const { value: envVars, error } = envSchema.validate(process.env);
@@ -57,5 +61,13 @@ export const env = {
   },
   cors: {
     allowedOrigins: envVars.ALLOWED_ORIGINS.split(',').map((o: string) => o.trim()) as string[],
+  },
+  cloudinary: {
+    cloudName: envVars.CLOUDINARY_CLOUD_NAME as string,
+    apiKey: envVars.CLOUDINARY_API_KEY as string,
+    apiSecret: envVars.CLOUDINARY_API_SECRET as string,
+  },
+  huggingFace: {
+    apiKey: envVars.HUGGING_FACE_API_KEY as string,
   },
 };

@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { Types } from 'mongoose';
 import { AdminAdsInput, AdminDeleteAdInput, AdminPauseAdInput, AdWithShop, CreateAdCampaignInput, CustomerAdFeedInput, DeleteAdCampaignInput, DetectObjectInput, DetectObjectResult, EntityId, GeneratePosterInput, GeneratePosterResult, InpaintPosterInput, InpaintPosterResult, PaginatedResult, PosterStyle, RecordClickInput, RegeneratePosterInput, RegeneratePosterResult, ShopAdCampaignsInput, ShopAdStatsInput, ShopAdStatsResult, UpdateAdCampaignInput } from './types.js';
 import { Shop } from '../models/Shop.js';
@@ -5,17 +6,18 @@ import { Ad, IAd } from '../models/Ad.js';
 import { AuditLog } from '../models/AuditLog.js';
 import { Membership } from '../models/Membership.js';
 import { cloudinary } from '../config/cloudinary.js';
+import { InferenceClient } from '@huggingface/inference';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const HF_BASE = 'https://api-inference.huggingface.co/models';
+const hfClient = new InferenceClient(process.env.HUGGING_FACE_API_KEY!);
 
 const HF_MODELS = {
-  generate: `${HF_BASE}/stabilityai/stable-diffusion-xl-base-1.0`,
-  inpaint:  `${HF_BASE}/stabilityai/stable-diffusion-2-inpainting`,
-  detect:   `${HF_BASE}/Salesforce/blip-image-captioning-base`,
+  generate: `stabilityai/stable-diffusion-xl-base-1.0`,
+  inpaint:  `stabilityai/stable-diffusion-2-inpainting`,
+  detect:   `Salesforce/blip-image-captioning-base`,
 } as const;
 
 const STYLE_GUIDE: Record<PosterStyle, string> = {
@@ -41,6 +43,7 @@ const OBJECT_SUGGESTIONS: Record<string, string[]> = {
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const paginate = <T>(
   items: T[],
@@ -56,10 +59,10 @@ const paginate = <T>(
 });
 
 const resolveShopId = async (ownerId: EntityId): Promise<Types.ObjectId> => {
-  const shop = await Shop.findOne({ 
-    ownerId: new Types.ObjectId(ownerId.toString()) 
+  const shop = await Shop.findOne({
+    ownerId: new Types.ObjectId(ownerId.toString()),
   }).select('_id').lean();
-  
+
   if (!shop) throw new Error('Shop not found for this owner');
   return shop._id as Types.ObjectId;
 };
@@ -91,43 +94,55 @@ const extractMainObject = (caption: string): string => {
   return match ?? 'object';
 };
 
+// Returns Buffer directly — no Response type involved
 const callHuggingFace = async (
-  modelUrl: string,
-  payload: Record<string, unknown>,
+  model: string,
+  prompt: string,
   retries = 3
-): Promise<Response> => {
+): Promise<Buffer> => {
+
   for (let i = 0; i < retries; i++) {
-    const res = await fetch(modelUrl, {
-      method:  'POST',
-      headers: {
-        Authorization:   `Bearer ${process.env.HF_API_KEY}`,
-        'Content-Type':  'application/json',
-        'x-wait-for-model': 'true',
-      },
-      body: JSON.stringify(payload),
-    });
+    try {
+      console.log(`HF attempt ${i + 1} → ${model}`);
 
-    // Model still loading — wait and retry
-    if (res.status === 503) {
-      await new Promise((r) => setTimeout(r, 5000));
-      continue;
+      const result = await hfClient.textToImage({
+        model,
+        inputs: prompt,
+        parameters: {
+          num_inference_steps: 30,
+          guidance_scale: 7.5,
+        },
+      });
+
+      // result may be a URL OR blob depending on backend
+      let arrayBuffer: ArrayBuffer;
+
+      if (typeof result === "string") {
+        const res = await fetch(result);
+        arrayBuffer = await res.arrayBuffer();
+      } else {
+        arrayBuffer = await (result as Blob).arrayBuffer();
+      }
+
+      return Buffer.from(arrayBuffer);
+
+    } catch (err) {
+      console.log(`HF error attempt ${i + 1}`, err);
+
+      if (i === retries - 1) throw err;
+
+      await new Promise(r => setTimeout(r, 3000));
     }
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Hugging Face error: ${err}`);
-    }
-
-    return res;
   }
-  throw new Error('Hugging Face model unavailable. Please try again shortly.');
+
+  throw new Error("Hugging Face failed after retries");
 };
 
 const uploadBufferToCloudinary = async (buffer: Buffer): Promise<string> => {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       { folder: 'loyyo/ads/ai-posters', resource_type: 'image' },
-      (error:any, result:any) => {
+      (error: any, result: any) => {
         if (error || !result) return reject(error);
         resolve(result.secure_url);
       }
@@ -145,7 +160,6 @@ export const getCustomerAdFeed = async (
 ): Promise<PaginatedResult<AdWithShop>> => {
   const { customerId, page = 1, limit = 10 } = input;
 
-  // Get shops this customer already joined
   const memberships = await Membership.find({ customerId }).select('shopId').lean();
   const joinedShopIds = memberships.map((m) => m.shopId);
 
@@ -161,7 +175,6 @@ export const getCustomerAdFeed = async (
         },
       },
       {
-        // Priority: internal for non-joined shops first, then boost, then external
         $addFields: {
           priority: {
             $switch: {
@@ -199,13 +212,12 @@ export const getCustomerAdFeed = async (
     Ad.countDocuments({ isActive: true, startDate: { $lte: now }, endDate: { $gte: now } }),
   ]);
 
-  // Record impressions for all served ads
   await Ad.updateMany(
     { _id: { $in: items.map((a) => a._id) } },
     { $inc: { impressions: 1 } }
   );
 
-  return paginate(items as AdWithShop[], total, page, limit);
+  return paginate(items as unknown as AdWithShop[], total, page, limit);
 };
 
 export const recordClick = async (input: RecordClickInput): Promise<void> => {
@@ -224,7 +236,6 @@ export const createAdCampaign = async (input: CreateAdCampaignInput): Promise<IA
 
   const shopId = await resolveShopId(ownerId);
 
-  // platform_boost requires a paid plan
   if (adType === 'boost') {
     const shop = await Shop.findById(shopId).select('plan').lean();
     if (!shop || shop.plan === 'free') {
@@ -302,7 +313,7 @@ export const getShopAdStats = async (
               {
                 $divide: [
                   { $subtract: ['$endDate', '$startDate'] },
-                  1000 * 60 * 60 * 24 * 7, // ms → weeks
+                  1000 * 60 * 60 * 24 * 7,
                 ],
               },
             ],
@@ -368,17 +379,13 @@ export const generatePoster = async (
 
   const prompt = buildPrompt(shopName, offerText, tagline, primaryColor, style);
 
-  const res = await callHuggingFace(HF_MODELS.generate, {
-    inputs: prompt,
-    parameters: {
-      width:                832,  // 4:5 portrait ratio
-      height:               1040,
-      num_inference_steps:  30,
-      guidance_scale:       7.5,
-    },
-  });
+  const buffer = await callHuggingFace(
+    HF_MODELS.generate,
+    prompt
+  );
 
-  const buffer = Buffer.from(await res.arrayBuffer());
+  console.log('Generated poster buffer size:', buffer.length);
+
   const imageUrl = await uploadBufferToCloudinary(buffer);
 
   return {
@@ -400,15 +407,23 @@ export const detectObject = async (
 ): Promise<DetectObjectResult> => {
   const { imageUrl } = input;
 
-  const res = await callHuggingFace(HF_MODELS.detect, {
-    inputs: imageUrl,
-  });
+  const res = await axios.post(
+    `https://router.huggingface.co/hf-inference/models/${HF_MODELS.detect}`,
+    { inputs: imageUrl },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.HF_TOKEN}`,
+      },
+      timeout: 30000,
+    }
+  );
 
-  const data = (await res.json()) as Array<{ generated_text: string }>;
+  const data = res.data as Array<{ generated_text: string }>;
   const caption = data[0]?.generated_text ?? '';
 
   const detectedObject = extractMainObject(caption);
-  const suggestions = OBJECT_SUGGESTIONS[detectedObject] ?? OBJECT_SUGGESTIONS.default;
+  const suggestions =
+    OBJECT_SUGGESTIONS[detectedObject] ?? OBJECT_SUGGESTIONS.default;
 
   return { detectedObject, caption, suggestions };
 };
@@ -420,26 +435,17 @@ export const inpaintPoster = async (
 
   const prompt =
     `${replaceWith}, professional product photography,
-     ${STYLE_GUIDE[style]}, high quality, realistic,
-     seamlessly integrated into the poster`
+${STYLE_GUIDE[style]}, high quality, realistic,
+seamlessly integrated into the poster`
       .replace(/\s+/g, ' ')
       .trim();
 
-  const res = await callHuggingFace(HF_MODELS.inpaint, {
-    inputs: {
-      prompt,
-      image:      imageUrl,
-      mask_image: maskRegion, // black/white mask generated by frontend
-    },
-    parameters: {
-      num_inference_steps: 30,
-      guidance_scale:      7.5,
-    },
-  });
+  const buffer = await callHuggingFace(
+    HF_MODELS.inpaint,
+    prompt
+  );
 
-  const buffer = Buffer.from(await res.arrayBuffer());
   const updatedImageUrl = await uploadBufferToCloudinary(buffer);
-
   return { imageUrl: updatedImageUrl };
 };
 
@@ -449,8 +455,8 @@ export const regeneratePoster = async (
   const { originalPrompt, updatedElements } = input;
 
   let extraContext = '';
-  if (updatedElements.background)  extraContext += `Background: ${updatedElements.background}. `;
-  if (updatedElements.font)        extraContext += `Font style: ${updatedElements.font}. `;
+  if (updatedElements.background) extraContext += `Background: ${updatedElements.background}. `;
+  if (updatedElements.font) extraContext += `Font style: ${updatedElements.font}. `;
   if (updatedElements.colorScheme) extraContext += `Color scheme: ${updatedElements.colorScheme}. `;
 
   if (updatedElements.objects) {
@@ -461,19 +467,12 @@ export const regeneratePoster = async (
 
   const updatedPrompt = `${originalPrompt} ${extraContext}`.trim();
 
-  const res = await callHuggingFace(HF_MODELS.generate, {
-    inputs: updatedPrompt,
-    parameters: {
-      width:               832,
-      height:              1040,
-      num_inference_steps: 30,
-      guidance_scale:      7.5,
-    },
-  });
+  const buffer = await callHuggingFace(
+    HF_MODELS.generate,
+    updatedPrompt
+  );
 
-  const buffer = Buffer.from(await res.arrayBuffer());
   const imageUrl = await uploadBufferToCloudinary(buffer);
-
   return { imageUrl, prompt: updatedPrompt };
 };
 
@@ -500,7 +499,7 @@ export const adminGetAllAds = async (
     Ad.countDocuments(filter),
   ]);
 
-return paginate(items as unknown as AdWithShop[], total, page, limit);
+  return paginate(items as unknown as AdWithShop[], total, page, limit);
 };
 
 export const adminPauseAd = async (input: AdminPauseAdInput): Promise<IAd> => {
