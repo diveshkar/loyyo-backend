@@ -7,6 +7,7 @@ export interface IAuditLog extends Document {
     | 'SHOP_SUSPENDED'
     | 'SHOP_REINSTATED'
     | 'USER_DEACTIVATED'
+    | 'AD_APPROVED'
     | 'AD_PAUSED'
     | 'AD_REMOVED'
     | 'AD_REMOVED_BY_ADMIN'
@@ -35,6 +36,7 @@ const AuditLogSchema = new Schema<IAuditLog>(
         'SHOP_SUSPENDED',
         'SHOP_REINSTATED',
         'USER_DEACTIVATED',
+        'AD_APPROVED',
         'AD_PAUSED',
         'AD_REMOVED',
         'AD_REMOVED_BY_ADMIN',

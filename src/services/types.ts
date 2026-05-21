@@ -231,7 +231,7 @@ export interface CustomerOffersInput extends PaginationInput {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface CreateAdCampaignInput {
-  ownerId:          EntityId;
+  ownerId?:          EntityId;
   title:            string;
   description:      string;
   imageUrl?:        string;
@@ -240,6 +240,7 @@ export interface CreateAdCampaignInput {
   startDate?:       Date;
   endDate:          Date;
   externalContact?: IExternalContact;
+  linkedOfferId?:   EntityId;
 }
 
 export interface IExternalContact {
@@ -291,6 +292,22 @@ export interface ShopAdStatsResult {
   totalClicks:      number;
   totalSpend:       number;
   activeCampaigns:  number;
+}
+
+export interface SubmitExternalAdInput {
+  title:           string;
+  description:     string;
+  imageUrl?:       string;
+  weeklyBudget:    number;
+  startDate?:      Date;
+  endDate:         Date;
+  externalContact: IExternalContact;
+}
+
+export interface AdminApproveAdInput {
+  adminId:  EntityId;
+  adId:     EntityId;
+  reason?:  string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

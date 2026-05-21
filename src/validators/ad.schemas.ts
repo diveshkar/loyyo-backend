@@ -1,21 +1,31 @@
 import Joi from 'joi';
 import { objectId, paginationQuery } from './common.schemas.js';
 
-// ─── EXISTING ─────────────────────────────────────────────────────────────────
+// ─── CUSTOMER ─────────────────────────────────────────────────────────────────
 
 export const adFeedQuerySchema = Joi.object({
   ...paginationQuery,
 });
 
+export const adIdParamSchema = Joi.object({
+  id: objectId.required(),
+});
+
+export const recordClickParamSchema = Joi.object({
+  id: objectId.required(),
+});
+
+// ─── SHOP ─────────────────────────────────────────────────────────────────────
+
 export const createAdCampaignSchema = Joi.object({
-  title:        Joi.string().trim().min(2).max(160).required(),
-  description:  Joi.string().trim().min(2).max(2000).required(),
-  imageUrl:     Joi.string().uri(),
-  adType:       Joi.string().valid('internal', 'boost', 'external').required(),
-  weeklyBudget: Joi.number().min(0).required(),
-  startDate:    Joi.date().iso(),
-  endDate:      Joi.date().iso().greater(Joi.ref('startDate')).required(),
-  // external type only
+  title:         Joi.string().trim().min(2).max(160).required(),
+  description:   Joi.string().trim().min(2).max(2000).required(),
+  imageUrl:      Joi.string().uri(),
+  adType:        Joi.string().valid('internal', 'boost', 'external').required(),
+  weeklyBudget:  Joi.number().min(0).required(),
+  startDate:     Joi.date().iso(),
+  endDate:       Joi.date().iso().greater(Joi.ref('startDate')).required(),
+  linkedOfferId: Joi.string().hex().length(24),
   externalContact: Joi.when('adType', {
     is:   'external',
     then: Joi.object({
@@ -29,18 +39,14 @@ export const createAdCampaignSchema = Joi.object({
 });
 
 export const updateAdCampaignSchema = Joi.object({
-  title:        Joi.string().trim().min(2).max(160),
-  description:  Joi.string().trim().min(2).max(2000),
-  imageUrl:     Joi.string().uri(),
-  weeklyBudget: Joi.number().min(0),
-  startDate:    Joi.date().iso(),
-  endDate:      Joi.date().iso(),
-  isActive:     Joi.boolean(),
+  title:         Joi.string().trim().min(2).max(160),
+  description:   Joi.string().trim().min(2).max(2000),
+  imageUrl:      Joi.string().uri(),
+  weeklyBudget:  Joi.number().min(0),
+  startDate:     Joi.date().iso(),
+  endDate:       Joi.date().iso(),
+  isActive:      Joi.boolean(),
 }).min(1);
-
-export const adIdParamSchema = Joi.object({
-  id: objectId.required(),
-});
 
 export const shopAdsQuerySchema = Joi.object({
   ...paginationQuery,
@@ -48,15 +54,26 @@ export const shopAdsQuerySchema = Joi.object({
   adType:   Joi.string().valid('internal', 'boost', 'external'),
 });
 
-// ─── NEW ──────────────────────────────────────────────────────────────────────
-
 export const shopAdStatsQuerySchema = Joi.object({
   from: Joi.date().iso(),
   to:   Joi.date().iso().greater(Joi.ref('from')),
 });
 
-export const recordClickParamSchema = Joi.object({
-  id: objectId.required(),
+// ─── EXTERNAL ─────────────────────────────────────────────────────────────────
+
+export const createExternalAdSchema = Joi.object({
+  title:        Joi.string().trim().min(2).max(160).required(),
+  description:  Joi.string().trim().min(2).max(2000).required(),
+  imageUrl:     Joi.string().uri(),
+  weeklyBudget: Joi.number().min(0).required(),
+  startDate:    Joi.date().iso(),
+  endDate:      Joi.date().iso().greater(Joi.ref('startDate')).required(),
+  externalContact: Joi.object({
+    contactName:  Joi.string().trim().required(),
+    contactPhone: Joi.string().trim().required(),
+    contactEmail: Joi.string().email().required(),
+    shopName:     Joi.string().trim().required(),
+  }).required(),
 });
 
 // ─── AI POSTER ────────────────────────────────────────────────────────────────
@@ -107,6 +124,10 @@ export const adminAdsQuerySchema = Joi.object({
   ...paginationQuery,
   isActive: Joi.boolean(),
   adType:   Joi.string().valid('internal', 'boost', 'external'),
+});
+
+export const adminApproveAdSchema = Joi.object({
+  reason: Joi.string().trim().max(500),
 });
 
 export const adminPauseAdSchema = Joi.object({

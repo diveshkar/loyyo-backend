@@ -8,7 +8,7 @@ export interface IExternalContact {
 }
 
 export interface IAd extends Document {
-  shopId:           Types.ObjectId;
+  shopId?:          Types.ObjectId;
   title:            string;
   description:      string;
   imageUrl?:        string;
@@ -19,6 +19,7 @@ export interface IAd extends Document {
   endDate:          Date;
   impressions:      number;
   clicks:           number;
+  linkedOfferId?:   Types.ObjectId;
   externalContact?: IExternalContact;
   createdAt:        Date;
   updatedAt:        Date;
@@ -27,10 +28,9 @@ export interface IAd extends Document {
 const AdSchema = new Schema<IAd>(
   {
     shopId: {
-      type:     Schema.Types.ObjectId,
-      ref:      'Shop',
-      required: [true, 'Shop ID is required'],
-      index:    true,
+      type:  Schema.Types.ObjectId,
+      ref:   'Shop',
+      index: true,
     },
     title: {
       type:     String,
@@ -62,7 +62,7 @@ const AdSchema = new Schema<IAd>(
       index:   true,
     },
     startDate: {
-      type:    Date,
+      type:     Date,
       required: true,
       default:  Date.now,
     },
@@ -77,6 +77,11 @@ const AdSchema = new Schema<IAd>(
     clicks: {
       type:    Number,
       default: 0,
+    },
+    linkedOfferId: {
+      type:  Schema.Types.ObjectId,
+      ref:   'Offer',
+      index: true,
     },
     externalContact: {
       type: {
@@ -94,10 +99,9 @@ const AdSchema = new Schema<IAd>(
   }
 );
 
-// For ad feed query
-AdSchema.index({ isActive: 1, startDate: 1, endDate: 1 });
+// ─── INDEXES ──────────────────────────────────────────────────────────────────
 
-// For shop dashboard
+AdSchema.index({ isActive: 1, startDate: 1, endDate: 1 });
 AdSchema.index({ shopId: 1, createdAt: -1 });
 
 export const Ad = model<IAd>('Ad', AdSchema);

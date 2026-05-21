@@ -1,6 +1,32 @@
 import axios from 'axios';
 import { Types } from 'mongoose';
-import { AdminAdsInput, AdminDeleteAdInput, AdminPauseAdInput, AdWithShop, CreateAdCampaignInput, CustomerAdFeedInput, DeleteAdCampaignInput, DetectObjectInput, DetectObjectResult, EntityId, GeneratePosterInput, GeneratePosterResult, InpaintPosterInput, InpaintPosterResult, PaginatedResult, PosterStyle, RecordClickInput, RegeneratePosterInput, RegeneratePosterResult, ShopAdCampaignsInput, ShopAdStatsInput, ShopAdStatsResult, UpdateAdCampaignInput } from './types.js';
+import {
+  AdminAdsInput,
+  AdminApproveAdInput,
+  AdminDeleteAdInput,
+  AdminPauseAdInput,
+  AdWithShop,
+  CreateAdCampaignInput,
+  CustomerAdFeedInput,
+  DeleteAdCampaignInput,
+  DetectObjectInput,
+  DetectObjectResult,
+  EntityId,
+  GeneratePosterInput,
+  GeneratePosterResult,
+  InpaintPosterInput,
+  InpaintPosterResult,
+  PaginatedResult,
+  PosterStyle,
+  RecordClickInput,
+  RegeneratePosterInput,
+  RegeneratePosterResult,
+  ShopAdCampaignsInput,
+  ShopAdStatsInput,
+  ShopAdStatsResult,
+  SubmitExternalAdInput,
+  UpdateAdCampaignInput,
+} from './types.js';
 import { Shop } from '../models/Shop.js';
 import { Ad, IAd } from '../models/Ad.js';
 import { AuditLog } from '../models/AuditLog.js';
@@ -15,9 +41,9 @@ import { InferenceClient } from '@huggingface/inference';
 const hfClient = new InferenceClient(process.env.HUGGING_FACE_API_KEY!);
 
 const HF_MODELS = {
-  generate: `stabilityai/stable-diffusion-xl-base-1.0`,
-  inpaint:  `stabilityai/stable-diffusion-2-inpainting`,
-  detect:   `Salesforce/blip-image-captioning-base`,
+  generate: 'stabilityai/stable-diffusion-xl-base-1.0',
+  inpaint:  'stabilityai/stable-diffusion-2-inpainting',
+  detect:   'Salesforce/blip-image-captioning-base',
 } as const;
 
 const STYLE_GUIDE: Record<PosterStyle, string> = {
@@ -43,6 +69,7 @@ const OBJECT_SUGGESTIONS: Record<string, string[]> = {
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const paginate = <T>(
@@ -94,13 +121,11 @@ const extractMainObject = (caption: string): string => {
   return match ?? 'object';
 };
 
-// Returns Buffer directly — no Response type involved
 const callHuggingFace = async (
   model: string,
   prompt: string,
   retries = 3
 ): Promise<Buffer> => {
-
   for (let i = 0; i < retries; i++) {
     try {
       console.log(`HF attempt ${i + 1} → ${model}`);
@@ -110,14 +135,12 @@ const callHuggingFace = async (
         inputs: prompt,
         parameters: {
           num_inference_steps: 30,
-          guidance_scale: 7.5,
+          guidance_scale:      7.5,
         },
       });
 
-      // result may be a URL OR blob depending on backend
       let arrayBuffer: ArrayBuffer;
-
-      if (typeof result === "string") {
+      if (typeof result === 'string') {
         const res = await fetch(result);
         arrayBuffer = await res.arrayBuffer();
       } else {
@@ -127,15 +150,13 @@ const callHuggingFace = async (
       return Buffer.from(arrayBuffer);
 
     } catch (err) {
-      console.log(`HF error attempt ${i + 1}`, err);
-
+      console.log(`HF error attempt ${i + 1}:`, err);
       if (i === retries - 1) throw err;
-
-      await new Promise(r => setTimeout(r, 3000));
+      await sleep(3000);
     }
   }
 
-  throw new Error("Hugging Face failed after retries");
+  throw new Error('Hugging Face failed after retries');
 };
 
 const uploadBufferToCloudinary = async (buffer: Buffer): Promise<string> => {
@@ -207,7 +228,7 @@ export const getCustomerAdFeed = async (
           as:           'shopId',
         },
       },
-      { $unwind: '$shopId' },
+      { $unwind: { path: '$shopId', preserveNullAndEmptyArrays: true } },
     ]),
     Ad.countDocuments({ isActive: true, startDate: { $lte: now }, endDate: { $gte: now } }),
   ]);
@@ -232,9 +253,13 @@ export const createAdCampaign = async (input: CreateAdCampaignInput): Promise<IA
   const {
     ownerId, title, description, imageUrl,
     adType, weeklyBudget, startDate, endDate,
+    linkedOfferId, externalContact,
   } = input;
 
-  const shopId = await resolveShopId(ownerId);
+  // External ads skip shop resolution
+  const shopId = adType === 'external'
+    ? undefined
+    : await resolveShopId(ownerId!);
 
   if (adType === 'boost') {
     const shop = await Shop.findById(shopId).select('plan').lean();
@@ -255,9 +280,13 @@ export const createAdCampaign = async (input: CreateAdCampaignInput): Promise<IA
     imageUrl,
     adType,
     weeklyBudget,
-    startDate: start,
-    endDate:   new Date(endDate),
-    isActive:  true,
+    startDate:       start,
+    endDate:         new Date(endDate),
+    isActive:        true,
+    linkedOfferId:   linkedOfferId
+      ? new Types.ObjectId(linkedOfferId.toString())
+      : undefined,
+    externalContact: externalContact ?? undefined,
   });
 
   return ad;
@@ -363,6 +392,31 @@ export const deleteAdCampaign = async (input: DeleteAdCampaignInput): Promise<IA
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// EXTERNAL
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const submitExternalAd = async (input: SubmitExternalAdInput): Promise<IAd> => {
+  const {
+    title, description, imageUrl,
+    weeklyBudget, startDate, endDate, externalContact,
+  } = input;
+
+  const ad = await Ad.create({
+    title,
+    description,
+    imageUrl,
+    adType:          'external',
+    weeklyBudget,
+    startDate:       startDate ? new Date(startDate) : new Date(),
+    endDate:         new Date(endDate),
+    isActive:        false,   // pending admin approval
+    externalContact,
+  });
+
+  return ad;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AI POSTER
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -378,11 +432,7 @@ export const generatePoster = async (
   } = input;
 
   const prompt = buildPrompt(shopName, offerText, tagline, primaryColor, style);
-
-  const buffer = await callHuggingFace(
-    HF_MODELS.generate,
-    prompt
-  );
+  const buffer = await callHuggingFace(HF_MODELS.generate, prompt);
 
   console.log('Generated poster buffer size:', buffer.length);
 
@@ -412,9 +462,9 @@ export const detectObject = async (
     { inputs: imageUrl },
     {
       headers: {
-        Authorization: `Bearer ${process.env.HF_TOKEN}`,
+        Authorization: `Bearer ${process.env.HUGGING_FACE_API_KEY}`,
       },
-      timeout: 30000,
+      timeout: 30_000,
     }
   );
 
@@ -422,8 +472,7 @@ export const detectObject = async (
   const caption = data[0]?.generated_text ?? '';
 
   const detectedObject = extractMainObject(caption);
-  const suggestions =
-    OBJECT_SUGGESTIONS[detectedObject] ?? OBJECT_SUGGESTIONS.default;
+  const suggestions = OBJECT_SUGGESTIONS[detectedObject] ?? OBJECT_SUGGESTIONS.default;
 
   return { detectedObject, caption, suggestions };
 };
@@ -431,22 +480,19 @@ export const detectObject = async (
 export const inpaintPoster = async (
   input: InpaintPosterInput
 ): Promise<InpaintPosterResult> => {
-  const { imageUrl, maskRegion, replaceWith, style = 'modern' } = input;
+  const { replaceWith, style = 'modern' } = input;
 
   const prompt =
     `${replaceWith}, professional product photography,
-${STYLE_GUIDE[style]}, high quality, realistic,
-seamlessly integrated into the poster`
+     ${STYLE_GUIDE[style]}, high quality, realistic,
+     seamlessly integrated into the poster`
       .replace(/\s+/g, ' ')
       .trim();
 
-  const buffer = await callHuggingFace(
-    HF_MODELS.inpaint,
-    prompt
-  );
+  const buffer   = await callHuggingFace(HF_MODELS.inpaint, prompt);
+  const imageUrl = await uploadBufferToCloudinary(buffer);
 
-  const updatedImageUrl = await uploadBufferToCloudinary(buffer);
-  return { imageUrl: updatedImageUrl };
+  return { imageUrl };
 };
 
 export const regeneratePoster = async (
@@ -455,8 +501,8 @@ export const regeneratePoster = async (
   const { originalPrompt, updatedElements } = input;
 
   let extraContext = '';
-  if (updatedElements.background) extraContext += `Background: ${updatedElements.background}. `;
-  if (updatedElements.font) extraContext += `Font style: ${updatedElements.font}. `;
+  if (updatedElements.background)  extraContext += `Background: ${updatedElements.background}. `;
+  if (updatedElements.font)        extraContext += `Font style: ${updatedElements.font}. `;
   if (updatedElements.colorScheme) extraContext += `Color scheme: ${updatedElements.colorScheme}. `;
 
   if (updatedElements.objects) {
@@ -466,13 +512,9 @@ export const regeneratePoster = async (
   }
 
   const updatedPrompt = `${originalPrompt} ${extraContext}`.trim();
+  const buffer        = await callHuggingFace(HF_MODELS.generate, updatedPrompt);
+  const imageUrl      = await uploadBufferToCloudinary(buffer);
 
-  const buffer = await callHuggingFace(
-    HF_MODELS.generate,
-    updatedPrompt
-  );
-
-  const imageUrl = await uploadBufferToCloudinary(buffer);
   return { imageUrl, prompt: updatedPrompt };
 };
 
@@ -500,6 +542,29 @@ export const adminGetAllAds = async (
   ]);
 
   return paginate(items as unknown as AdWithShop[], total, page, limit);
+};
+
+export const adminApproveAd = async (input: AdminApproveAdInput): Promise<IAd> => {
+  const { adminId, adId, reason } = input;
+
+  const ad = await Ad.findByIdAndUpdate(
+    adId,
+    { $set: { isActive: true } },
+    { new: true }
+  );
+  if (!ad) throw new Error('Ad not found');
+
+  await AuditLog.create({
+    adminId,
+    action:     'AD_APPROVED',
+    targetType: 'ad',
+    targetId:   adId,
+    before:     { isActive: false },
+    after:      { isActive: true },
+    reason,
+  });
+
+  return ad;
 };
 
 export const adminPauseAd = async (input: AdminPauseAdInput): Promise<IAd> => {

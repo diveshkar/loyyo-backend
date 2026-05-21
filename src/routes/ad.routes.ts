@@ -7,6 +7,7 @@ import {
   adFeedQuerySchema,
   adIdParamSchema,
   createAdCampaignSchema,
+  createExternalAdSchema,
   shopAdsQuerySchema,
   shopAdStatsQuerySchema,
   updateAdCampaignSchema,
@@ -16,6 +17,7 @@ import {
   inpaintPosterSchema,
   regeneratePosterSchema,
   adminAdsQuerySchema,
+  adminApproveAdSchema,
   adminPauseAdSchema,
   adminDeleteAdSchema,
 } from '../validators/ad.schemas.js';
@@ -23,6 +25,7 @@ import {
 const router = Router();
 
 // ─── CUSTOMER ─────────────────────────────────────────────────────────────────
+
 router.get('/feed',
   protect,
   restrictTo('customer'),
@@ -37,8 +40,17 @@ router.post('/:id/click',
   adController.recordClick
 );
 
+// ─── EXTERNAL ─────────────────────────────────────────────────────────────────
+// No auth — non-registered businesses submit ad requests publicly
+
+router.post('/external/submit',
+  validate({ body: createExternalAdSchema }),
+  adController.submitExternalAd
+);
+
 // ─── AI POSTER ────────────────────────────────────────────────────────────────
-// Note: poster/* routes must come before /:id to avoid param conflict
+// poster/* must come before /:id to avoid param conflict
+
 router.post('/poster/generate',
   protect,
   restrictTo('shop'),
@@ -68,6 +80,7 @@ router.post('/poster/regenerate',
 );
 
 // ─── SHOP ─────────────────────────────────────────────────────────────────────
+
 router.post('/',
   protect,
   restrictTo('shop'),
@@ -104,11 +117,19 @@ router.delete('/:id',
 );
 
 // ─── ADMIN ────────────────────────────────────────────────────────────────────
+
 router.get('/admin/all',
   protect,
   restrictTo('admin'),
   validate({ query: adminAdsQuerySchema }),
   adController.adminGetAllAds
+);
+
+router.patch('/admin/:id/approve',
+  protect,
+  restrictTo('admin'),
+  validate({ params: adIdParamSchema, body: adminApproveAdSchema }),
+  adController.adminApproveAd
 );
 
 router.patch('/admin/:id/pause',

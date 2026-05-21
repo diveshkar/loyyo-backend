@@ -1,4 +1,3 @@
-import type { Types } from 'mongoose';
 import * as adService from '../services/ad.service.js';
 import type { AuthenticatedRequest } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -19,7 +18,7 @@ export const getCustomerAdFeed = asyncHandler(async (req, res) => {
 
 export const recordClick = asyncHandler(async (req, res) => {
   const result = await adService.recordClick({
-    adId: req.params.id as string,
+    adId: req.params.id as EntityId,
   });
   sendSuccess(res, result);
 });
@@ -38,9 +37,9 @@ export const createAdCampaign = asyncHandler(async (req, res) => {
 export const getShopAdCampaigns = asyncHandler(async (req, res) => {
   const authReq = req as AuthenticatedRequest;
   const result = await adService.getShopAdCampaigns({
-    ownerId: authReq.user!._id,
-    page:    Number(req.query.page),
-    limit:   Number(req.query.limit),
+    ownerId:  authReq.user!._id,
+    page:     Number(req.query.page),
+    limit:    Number(req.query.limit),
     isActive: req.query.isActive !== undefined
       ? req.query.isActive === 'true'
       : undefined,
@@ -73,7 +72,7 @@ export const deleteAdCampaign = asyncHandler(async (req, res) => {
   const authReq = req as AuthenticatedRequest;
   const result = await adService.deleteAdCampaign({
     ownerId: authReq.user!._id,
-    adId:req.params.id as EntityId
+    adId:    req.params.id as EntityId,
   });
   sendSuccess(res, result);
 });
@@ -117,6 +116,13 @@ export const regeneratePoster = asyncHandler(async (req, res) => {
   sendSuccess(res, result);
 });
 
+// ─── EXTERNAL ─────────────────────────────────────────────────────────────────
+
+export const submitExternalAd = asyncHandler(async (req, res) => {
+  const result = await adService.submitExternalAd(req.body);
+  sendSuccess(res, result, 201);
+});
+
 // ─── ADMIN ────────────────────────────────────────────────────────────────────
 
 export const adminGetAllAds = asyncHandler(async (req, res) => {
@@ -135,6 +141,16 @@ export const adminGetAllAds = asyncHandler(async (req, res) => {
 export const adminPauseAd = asyncHandler(async (req, res) => {
   const authReq = req as AuthenticatedRequest;
   const result = await adService.adminPauseAd({
+    adminId: authReq.user!._id,
+    adId:    req.params.id as EntityId,
+    reason:  req.body.reason,
+  });
+  sendSuccess(res, result);
+});
+
+export const adminApproveAd = asyncHandler(async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const result = await adService.adminApproveAd({
     adminId: authReq.user!._id,
     adId:    req.params.id as EntityId,
     reason:  req.body.reason,
