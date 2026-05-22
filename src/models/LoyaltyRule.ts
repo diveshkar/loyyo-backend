@@ -1,47 +1,48 @@
 import { Schema, model, Document, Types } from 'mongoose';
 
 export interface ILoyaltyRule extends Document {
-  shopId: Types.ObjectId;
-  title: string;
-  visitsRequired: number;
+  shopId:            Types.ObjectId;
+  title:             string;
+  visitsRequired:    number;
   rewardDescription: string;
-  version: number;
-  isActive: boolean;
-  createdAt: Date;
-  updatedAt: Date;
+  version:           number;
+  isActive:          boolean;  // per-rule active — not "only one can be active"
+  createdAt:         Date;
+  updatedAt:         Date;
 }
 
 const LoyaltyRuleSchema = new Schema<ILoyaltyRule>(
   {
     shopId: {
-      type: Schema.Types.ObjectId,
-      ref: 'Shop',
+      type:     Schema.Types.ObjectId,
+      ref:      'Shop',
       required: [true, 'Shop ID is required'],
-      index: true,
+      index:    true,
     },
     title: {
-      type: String,
-      required: [true, 'Loyalty service title is required'],
-      trim: true,
+      type:     String,
+      required: [true, 'Loyalty rule title is required'],
+      trim:     true,
     },
     visitsRequired: {
-      type: Number,
-      required: [true, 'Number of visits required is required'],
-      min: [1, 'Must require at least 1 visit'],
+      type:     Number,
+      required: [true, 'Visits required is required'],
+      min:      [1, 'Must require at least 1 visit'],
     },
     rewardDescription: {
-      type: String,
+      type:     String,
       required: [true, 'Reward description is required'],
-      trim: true,
+      trim:     true,
     },
     version: {
-      type: Number,
+      type:     Number,
       required: true,
-      default: 1,
+      default:  1,
     },
     isActive: {
-      type: Boolean,
+      type:    Boolean,
       default: true,
+      index:   true,
     },
   },
   {
@@ -49,7 +50,10 @@ const LoyaltyRuleSchema = new Schema<ILoyaltyRule>(
   }
 );
 
-// Compound index on shopId and version to track historical configurations
+// No duplicate versions per rule title per shop
 LoyaltyRuleSchema.index({ shopId: 1, version: 1 }, { unique: true });
+
+// Fast lookup of all active rules for a shop
+LoyaltyRuleSchema.index({ shopId: 1, isActive: 1 });
 
 export const LoyaltyRule = model<ILoyaltyRule>('LoyaltyRule', LoyaltyRuleSchema);

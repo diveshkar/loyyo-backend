@@ -1,25 +1,27 @@
 import type { Types } from 'mongoose';
-import { IAd } from '../models/Ad.js';
-import { IAuditLog } from '../models/AuditLog.js';
-import { IShop } from '../models/Shop.js';
-import { IUser } from '../models/User.js';
-import { IMembership } from '../models/Membership.js';
-import { IVisit } from '../models/Visit.js';
-import { IReward } from '../models/Reward.js';
-import { IOffer } from '../models/Offer.js';
-import { IPayment } from '../models/Payment.js';
+import { IAd }          from '../models/Ad.js';
+import { IAuditLog }    from '../models/AuditLog.js';
+import { IShop }        from '../models/Shop.js';
+import { IUser }        from '../models/User.js';
+import { IMembership }  from '../models/Membership.js';
+import { IVisit }       from '../models/Visit.js';
+import { IReward }      from '../models/Reward.js';
+import { IOffer }       from '../models/Offer.js';
+import { IPayment }     from '../models/Payment.js';
+import { ILoyaltyRule } from '../models/LoyaltyRule.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIMITIVES
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type EntityId       = string | Types.ObjectId;
-export type UserRole       = 'customer' | 'shop' | 'admin';
-export type ShopPlan       = 'free' | 'basic' | 'standard' | 'premium';
-export type ShopStatus     = 'pending' | 'active' | 'suspended';
-export type PaymentPlan    = 'basic' | 'standard' | 'premium';
-export type PaymentStatus  = 'pending' | 'paid' | 'failed' | 'refunded';
-export type AdType         = 'internal' | 'boost' | 'external';
-export type PosterStyle    = 'modern' | 'playful' | 'elegant' | 'bold';
+export type EntityId      = string | Types.ObjectId;
+export type UserRole      = 'customer' | 'shop' | 'admin';
+export type ShopPlan      = 'free' | 'basic' | 'standard' | 'premium';
+export type ShopStatus    = 'pending' | 'active' | 'suspended';
+export type PaymentPlan   = 'basic' | 'standard' | 'premium';
+export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
+export type AdType        = 'internal' | 'boost' | 'external';
+export type PosterStyle   = 'modern' | 'playful' | 'elegant' | 'bold';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SHARED
@@ -131,9 +133,9 @@ export interface ShopStatsInput {
 }
 
 export interface ShopStatsResult {
-  totalMembers:  number;
-  visitsToday:   number;
-  activeOffers:  number;
+  totalMembers: number;
+  visitsToday:  number;
+  activeOffers: number;
   subscriptionStatus: {
     plan:       ShopPlan;
     expiresAt?: Date;
@@ -152,6 +154,12 @@ export interface RotateShopApiTokenResult {
 // ─────────────────────────────────────────────────────────────────────────────
 // MEMBERSHIP & LOYALTY
 // ─────────────────────────────────────────────────────────────────────────────
+
+export interface IRuleProgress {
+  ruleId:     EntityId;
+  visitCount: number;
+  version:    number;
+}
 
 export interface JoinShopInput {
   customerId: EntityId;
@@ -194,10 +202,23 @@ export interface VisitHistoryInput extends PaginationInput {
 }
 
 export interface CreateOrUpdateLoyaltyRuleInput {
-  ownerId:            EntityId;
-  title:              string;
-  visitsRequired:     number;
-  rewardDescription:  string;
+  ownerId:           EntityId;
+  title:             string;
+  visitsRequired:    number;
+  rewardDescription: string;
+}
+
+export interface GetAllActiveRulesInput {
+  ownerId: EntityId;
+}
+
+export interface GetRuleHistoryInput {
+  ownerId: EntityId;
+}
+
+export interface GetMyRewardsInput extends PaginationInput {
+  customerId: EntityId;
+  status?:    'pending' | 'redeemed';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -231,7 +252,7 @@ export interface CustomerOffersInput extends PaginationInput {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface CreateAdCampaignInput {
-  ownerId?:          EntityId;
+  ownerId?:         EntityId;
   title:            string;
   description:      string;
   imageUrl?:        string;
@@ -495,3 +516,7 @@ export type VisitWithMembership    = IVisit      & { membershipId: IMembership }
 export type RewardWithMembership   = IReward     & { membershipId: IMembership };
 export type OfferWithShop          = IOffer      & { shopId:       IShop       };
 export type AdWithShop             = IAd         & { shopId:       IShop       };
+export type MembershipWithShopAndRules = IMembership & {
+  shopId:       IShop;
+  ruleProgress: Array<IRuleProgress & { ruleId: ILoyaltyRule }>;
+};

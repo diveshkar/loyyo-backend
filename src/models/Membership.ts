@@ -1,51 +1,77 @@
 import { Schema, model, Document, Types } from 'mongoose';
 
-export interface IMembership extends Document {
-  customerId: Types.ObjectId;
-  shopId: Types.ObjectId;
+export interface IRuleProgress {
+  ruleId:     Types.ObjectId;
   visitCount: number;
-  totalVisits: number;
-  activeRuleId?: Types.ObjectId; // ref: LoyaltyRule / LoyaltyService
-  joinedAt: Date;
-  lastVisitAt?: Date;
-  createdAt: Date;
-  updatedAt: Date;
+  version:    number;
 }
+
+export interface IMembership extends Document {
+  customerId:   Types.ObjectId;
+  shopId:       Types.ObjectId;
+  ruleProgress: IRuleProgress[];
+  totalVisits:  number;
+  joinedAt:     Date;
+  lastVisitAt?: Date;
+  isActive:     boolean;
+  createdAt:    Date;
+  updatedAt:    Date;
+}
+
+const RuleProgressSchema = new Schema<IRuleProgress>(
+  {
+    ruleId: {
+      type:     Schema.Types.ObjectId,
+      ref:      'LoyaltyRule',
+      required: true,
+    },
+    visitCount: {
+      type:    Number,
+      default: 0,
+      min:     0,
+    },
+    version: {
+      type:     Number,
+      required: true,
+    },
+  },
+  { _id: false }
+);
 
 const MembershipSchema = new Schema<IMembership>(
   {
     customerId: {
-      type: Schema.Types.ObjectId,
-      ref: 'User',
+      type:     Schema.Types.ObjectId,
+      ref:      'User',
       required: [true, 'Customer ID is required'],
-      index: true,
+      index:    true,
     },
     shopId: {
-      type: Schema.Types.ObjectId,
-      ref: 'Shop',
+      type:     Schema.Types.ObjectId,
+      ref:      'Shop',
       required: [true, 'Shop ID is required'],
-      index: true,
+      index:    true,
     },
-    visitCount: {
-      type: Number,
-      default: 0,
-      min: 0,
+    ruleProgress: {
+      type:    [RuleProgressSchema],
+      default: [],
     },
     totalVisits: {
-      type: Number,
+      type:    Number,
       default: 0,
-      min: 0,
-    },
-    activeRuleId: {
-      type: Schema.Types.ObjectId,
-      ref: 'LoyaltyRule', // Reference to the rule governing the current stamp cycle
+      min:     0,
     },
     joinedAt: {
-      type: Date,
+      type:    Date,
       default: Date.now,
     },
     lastVisitAt: {
       type: Date,
+    },
+    isActive: {
+      type:    Boolean,
+      default: true,
+      index:   true,
     },
   },
   {
@@ -53,7 +79,7 @@ const MembershipSchema = new Schema<IMembership>(
   }
 );
 
-// Compound index: A customer can only have one membership card per shop
+// One membership per customer per shop
 MembershipSchema.index({ customerId: 1, shopId: 1 }, { unique: true });
 
 export const Membership = model<IMembership>('Membership', MembershipSchema);
