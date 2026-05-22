@@ -321,6 +321,7 @@ export interface GeneratePosterInput {
   tagline:       string;
   primaryColor?: string;
   style?:        PosterStyle;
+  extraContext?: string;
 }
 
 export interface GeneratePosterResult {

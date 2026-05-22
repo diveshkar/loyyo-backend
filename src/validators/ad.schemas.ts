@@ -84,6 +84,7 @@ export const generatePosterSchema = Joi.object({
   tagline:      Joi.string().trim().min(2).max(150).required(),
   primaryColor: Joi.string().pattern(/^#[0-9A-Fa-f]{6}$/).default('#2563EB'),
   style:        Joi.string().valid('modern', 'playful', 'elegant', 'bold').default('modern'),
+  extraContext: Joi.string().trim().max(500),
 });
 
 export const detectObjectSchema = Joi.object({
