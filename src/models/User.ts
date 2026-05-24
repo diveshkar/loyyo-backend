@@ -1,13 +1,16 @@
 import { Schema, model, Document } from 'mongoose';
 import bcrypt from 'bcryptjs';
+import { USER_ROLES, type UserRole } from './enums.js';
 
 export interface IUser extends Document {
   name: string;
   email: string;
-  passwordHash: string;
   phone?: string;
+  passwordHash: string;
+  role: UserRole;
+  profilePhoto?: string;
+  isActive: boolean;
   avatarUrl?: string;
-  role: 'customer' | 'shop' | 'admin';
   isVerified: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -29,22 +32,32 @@ const UserSchema = new Schema<IUser>(
       trim: true,
       index: true,
     },
-    passwordHash: {
-      type: String,
-      required: [true, 'Password is required'],
-      select: false, // Don't return password by default in queries
-    },
     phone: {
       type: String,
       trim: true,
     },
-    avatarUrl: {
+    passwordHash: {
       type: String,
+      required: [true, 'Password is required'],
+      select: false,
     },
     role: {
       type: String,
-      enum: ['customer', 'shop', 'admin'],
+      enum: USER_ROLES,
+      required: true,
       default: 'customer',
+    },
+    profilePhoto: {
+      type: String,
+    },
+    isActive: {
+      type: Boolean,
+      required: true,
+      default: true,
+      index: true,
+    },
+    avatarUrl: {
+      type: String,
     },
     isVerified: {
       type: Boolean,
@@ -52,11 +65,21 @@ const UserSchema = new Schema<IUser>(
     },
   },
   {
-    timestamps: true, // Automatically manages createdAt and updatedAt
+    timestamps: true,
   }
 );
 
-// Method to verify password hash
+UserSchema.pre('validate', function () {
+  if (this.avatarUrl && !this.profilePhoto) {
+    this.profilePhoto = this.avatarUrl;
+  }
+
+  if (this.profilePhoto && !this.avatarUrl) {
+    this.avatarUrl = this.profilePhoto;
+  }
+
+});
+
 UserSchema.methods.comparePassword = async function (candidatePassword: string): Promise<boolean> {
   return bcrypt.compare(candidatePassword, this.passwordHash);
 };

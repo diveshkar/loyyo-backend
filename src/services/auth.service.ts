@@ -46,6 +46,27 @@ const parseDurationMs = (duration: string): number => {
   return value * multipliers[unit]!;
 };
 
+const normalizeShopType = (category?: string): RegisterShopInput['type'] => {
+  const normalized = category?.toLowerCase().replace(/\s+/g, '_');
+  const allowedTypes: Array<NonNullable<RegisterShopInput['type']>> = [
+    'tea_shop',
+    'salon',
+    'restaurant',
+    'supermarket',
+    'clothing',
+    'electronics',
+    'gym',
+    'pharmacy',
+    'grocery',
+    'bakery',
+    'other',
+  ];
+
+  return allowedTypes.includes(normalized as NonNullable<RegisterShopInput['type']>)
+    ? (normalized as NonNullable<RegisterShopInput['type']>)
+    : 'other';
+};
+
 const createAccessToken = (user: IUser): string => {
   const payload = {
     id: String(user._id),
@@ -158,8 +179,11 @@ export const registerShop = async (input: RegisterShopInput): Promise<AuthResult
     name: input.shopName,
     description: input.description,
     category: input.category,
+    type: input.type ?? normalizeShopType(input.category),
     logoUrl: input.logoUrl,
     address: input.address,
+    locationLng: input.longitude,
+    locationLat: input.latitude,
     location: {
       type: 'Point',
       coordinates: [input.longitude, input.latitude],

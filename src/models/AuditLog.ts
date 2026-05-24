@@ -1,59 +1,41 @@
 import { Schema, model, Document, Types } from 'mongoose';
+import { AUDIT_ACTIONS, AUDIT_TARGET_TYPES, type AuditAction, type AuditTargetType } from './enums.js';
 
 export interface IAuditLog extends Document {
-  adminId:    Types.ObjectId;
-  action:
-    | 'SHOP_APPROVED'
-    | 'SHOP_SUSPENDED'
-    | 'SHOP_REINSTATED'
-    | 'USER_DEACTIVATED'
-    | 'AD_APPROVED'
-    | 'AD_PAUSED'
-    | 'AD_REMOVED'
-    | 'AD_REMOVED_BY_ADMIN'
-    | 'PAYMENT_REFUNDED';
-  targetType: 'shop' | 'user' | 'ad' | 'payment';
-  targetId:   Types.ObjectId;
-  before?:    Record<string, any>;
-  after?:     Record<string, any>;
-  reason?:    string;
-  ip?:        string;
-  createdAt:  Date;
+  adminId: Types.ObjectId;
+  action: AuditAction;
+  targetType: AuditTargetType;
+  targetId: Types.ObjectId;
+  before?: Record<string, any>;
+  after?: Record<string, any>;
+  reason: string;
+  ip?: string;
+  createdAt: Date;
 }
 
 const AuditLogSchema = new Schema<IAuditLog>(
   {
     adminId: {
-      type:     Schema.Types.ObjectId,
-      ref:      'User',
+      type: Schema.Types.ObjectId,
+      ref: 'User',
       required: [true, 'Admin ID is required'],
-      index:    true,
+      index: true,
     },
     action: {
       type: String,
-      enum: [
-        'SHOP_APPROVED',
-        'SHOP_SUSPENDED',
-        'SHOP_REINSTATED',
-        'USER_DEACTIVATED',
-        'AD_APPROVED',
-        'AD_PAUSED',
-        'AD_REMOVED',
-        'AD_REMOVED_BY_ADMIN',
-        'PAYMENT_REFUNDED',
-      ],
+      enum: AUDIT_ACTIONS,
       required: [true, 'Audit action is required'],
-      index:    true,
+      index: true,
     },
     targetType: {
-      type:     String,
-      enum:     ['shop', 'user', 'ad', 'payment'],
+      type: String,
+      enum: AUDIT_TARGET_TYPES,
       required: [true, 'Target type is required'],
     },
     targetId: {
-      type:     Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       required: [true, 'Target ID is required'],
-      index:    true,
+      index: true,
     },
     before: {
       type: Schema.Types.Mixed,
@@ -63,6 +45,7 @@ const AuditLogSchema = new Schema<IAuditLog>(
     },
     reason: {
       type: String,
+      required: [true, 'Audit reason is required'],
       trim: true,
     },
     ip: {
@@ -75,17 +58,15 @@ const AuditLogSchema = new Schema<IAuditLog>(
   }
 );
 
-// ─── IMMUTABILITY GUARDS ──────────────────────────────────────────────────────
-
 const blockWrite = function (next: any) {
   next(new Error('Audit logs are immutable. Update and delete operations are strictly prohibited.'));
 };
 
-AuditLogSchema.pre('updateOne',        blockWrite);
+AuditLogSchema.pre('updateOne', blockWrite);
 AuditLogSchema.pre('findOneAndUpdate', blockWrite);
-AuditLogSchema.pre('updateMany',       blockWrite);
-AuditLogSchema.pre('deleteOne',        blockWrite);
-AuditLogSchema.pre('deleteMany',       blockWrite);
+AuditLogSchema.pre('updateMany', blockWrite);
+AuditLogSchema.pre('deleteOne', blockWrite);
+AuditLogSchema.pre('deleteMany', blockWrite);
 AuditLogSchema.pre('findOneAndDelete', blockWrite);
 
 AuditLogSchema.pre('save', function (this: any, next: any) {

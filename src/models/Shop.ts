@@ -1,19 +1,25 @@
 import { Schema, model, Document, Types } from 'mongoose';
+import { SHOP_PLANS, SHOP_STATUSES, SHOP_TYPES, type ShopPlan, type ShopStatus, type ShopType } from './enums.js';
 
 export interface IShop extends Document {
   ownerId: Types.ObjectId;
   name: string;
-  description: string;
-  category: string;
-  logoUrl?: string;
+  type: ShopType;
   address: string;
+  locationLng: number;
+  locationLat: number;
+  plan: ShopPlan;
+  status: ShopStatus;
+  apiKey?: string;
+  checkinRadius: number;
+  planExpiresAt?: Date;
+  description?: string;
+  category?: string;
+  logoUrl?: string;
   location: {
     type: 'Point';
-    coordinates: [number, number]; // [longitude, latitude]
+    coordinates: [number, number];
   };
-  status: 'pending' | 'active' | 'suspended';
-  plan: 'free' | 'basic' | 'standard' | 'premium';
-  planExpiresAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,23 +38,29 @@ const ShopSchema = new Schema<IShop>(
       unique: true,
       trim: true,
     },
-    description: {
+    type: {
       type: String,
-      required: [true, 'Shop description is required'],
-      trim: true,
-    },
-    category: {
-      type: String,
-      required: [true, 'Category is required'],
-      trim: true, // e.g. 'Cafe', 'Salon', 'Gym'
-    },
-    logoUrl: {
-      type: String,
+      enum: SHOP_TYPES,
+      required: [true, 'Shop type is required'],
+      default: 'other',
+      index: true,
     },
     address: {
       type: String,
       required: [true, 'Address is required'],
       trim: true,
+    },
+    locationLng: {
+      type: Number,
+      required: [true, 'Location longitude is required'],
+      min: -180,
+      max: 180,
+    },
+    locationLat: {
+      type: Number,
+      required: [true, 'Location latitude is required'],
+      min: -90,
+      max: 90,
     },
     location: {
       type: {
@@ -58,7 +70,7 @@ const ShopSchema = new Schema<IShop>(
         required: true,
       },
       coordinates: {
-        type: [Number], // [lng, lat]
+        type: [Number],
         required: true,
         validate: {
           validator: (coords: number[]) => coords.length === 2,
@@ -66,19 +78,45 @@ const ShopSchema = new Schema<IShop>(
         },
       },
     },
+    plan: {
+      type: String,
+      enum: SHOP_PLANS,
+      required: true,
+      default: 'free',
+    },
     status: {
       type: String,
-      enum: ['pending', 'active', 'suspended'],
+      enum: SHOP_STATUSES,
+      required: true,
       default: 'pending',
       index: true,
     },
-    plan: {
+    apiKey: {
       type: String,
-      enum: ['free', 'basic', 'standard', 'premium'],
-      default: 'free',
+      unique: true,
+      sparse: true,
+      trim: true,
+      select: false,
+    },
+    checkinRadius: {
+      type: Number,
+      required: true,
+      default: 100,
+      min: 1,
     },
     planExpiresAt: {
       type: Date,
+    },
+    description: {
+      type: String,
+      trim: true,
+    },
+    category: {
+      type: String,
+      trim: true,
+    },
+    logoUrl: {
+      type: String,
     },
   },
   {
@@ -86,7 +124,24 @@ const ShopSchema = new Schema<IShop>(
   }
 );
 
-// Geo-spatial index for nearby shop lookup
+ShopSchema.pre('validate', function () {
+  if (this.location?.coordinates?.length === 2) {
+    this.locationLng ??= this.location.coordinates[0];
+    this.locationLat ??= this.location.coordinates[1];
+  } else if (typeof this.locationLng === 'number' && typeof this.locationLat === 'number') {
+    this.location = {
+      type: 'Point',
+      coordinates: [this.locationLng, this.locationLat],
+    };
+  }
+
+  if (!this.type && this.category) {
+    const normalized = this.category.toLowerCase().replace(/\s+/g, '_');
+    this.type = SHOP_TYPES.includes(normalized as ShopType) ? (normalized as ShopType) : 'other';
+  }
+
+});
+
 ShopSchema.index({ location: '2dsphere' });
 
 export const Shop = model<IShop>('Shop', ShopSchema);

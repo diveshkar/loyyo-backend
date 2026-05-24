@@ -28,6 +28,7 @@ export const getNearbyShops = asyncHandler(async (req, res) => {
     latitude: Number(req.query.latitude),
     longitude: Number(req.query.longitude),
     radiusKm: req.query.radiusKm ? Number(req.query.radiusKm) : undefined,
+    type: req.query.type as any,
     category: req.query.category as string | undefined,
     page: Number(req.query.page),
     limit: Number(req.query.limit),

@@ -7,8 +7,12 @@ export const markVisit = asyncHandler(async (req, res) => {
   const posReq = req as PosAuthenticatedRequest;
   const result = await loyaltyService.recordPosVisit({
     shopId: posReq.shop!._id,
-    markedById: posReq.shop!.ownerId,
     customerEmail: req.body.customerEmail,
+    serviceId: req.body.serviceId,
+    checkinToken: req.body.checkinToken,
+    locationVerified: req.body.locationVerified,
+    spendAmount: req.body.spendAmount,
+    productsBought: req.body.productsBought,
   });
   sendSuccess(res, result, 201);
 });

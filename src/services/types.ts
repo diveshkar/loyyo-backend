@@ -5,7 +5,6 @@ import { IShop }        from '../models/Shop.js';
 import { IUser }        from '../models/User.js';
 import { IMembership }  from '../models/Membership.js';
 import { IVisit }       from '../models/Visit.js';
-import { IReward }      from '../models/Reward.js';
 import { IOffer }       from '../models/Offer.js';
 import { IPayment }     from '../models/Payment.js';
 import { ILoyaltyRule } from '../models/LoyaltyRule.js';
@@ -18,10 +17,26 @@ export type EntityId      = string | Types.ObjectId;
 export type UserRole      = 'customer' | 'shop' | 'admin';
 export type ShopPlan      = 'free' | 'basic' | 'standard' | 'premium';
 export type ShopStatus    = 'pending' | 'active' | 'suspended';
+export type ShopType      =
+  | 'tea_shop'
+  | 'salon'
+  | 'restaurant'
+  | 'supermarket'
+  | 'clothing'
+  | 'electronics'
+  | 'gym'
+  | 'pharmacy'
+  | 'grocery'
+  | 'bakery'
+  | 'other';
 export type PaymentPlan   = 'basic' | 'standard' | 'premium';
 export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
 export type AdType        = 'internal' | 'boost' | 'external';
 export type PosterStyle   = 'modern' | 'playful' | 'elegant' | 'bold';
+export type LoyaltyType   = 'visit' | 'points' | 'spend' | 'product' | 'hybrid' | 'tier' | 'referral' | 'event';
+export type RewardType    = 'free_item' | 'percent_discount' | 'fixed_discount' | 'cashback' | 'voucher' | 'buy_x_get_y';
+export type DiscountType  = 'percent' | 'free_item' | 'fixed' | 'cashback';
+export type MarkedByMethod = 'qr_scan' | 'barcode_scan' | 'kiosk' | 'plugin' | 'manual';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SHARED
@@ -81,7 +96,8 @@ export interface RegisterShopInput {
   phone?:      string;
   shopName:    string;
   description: string;
-  category:    string;
+  type?:       ShopType;
+  category?:   string;
   address:     string;
   longitude:   number;
   latitude:    number;
@@ -108,6 +124,7 @@ export interface CurrentShopInput {
 export interface UpdateShopProfileInput extends CurrentShopInput {
   name?:        string;
   description?: string;
+  type?:        ShopType;
   category?:    string;
   logoUrl?:     string;
   address?:     string;
@@ -123,6 +140,7 @@ export interface NearbyShopsInput extends PaginationInput {
   latitude:   number;
   longitude:  number;
   radiusKm?:  number;
+  type?:      ShopType;
   category?:  string;
 }
 
@@ -158,7 +176,10 @@ export interface RotateShopApiTokenResult {
 export interface IRuleProgress {
   ruleId:     EntityId;
   visitCount: number;
+  pointsCount: number;
+  spendCount: number;
   version:    number;
+  status:     'active' | 'completed' | 'expired';
 }
 
 export interface JoinShopInput {
@@ -188,12 +209,32 @@ export interface RedeemRewardInput {
 export interface MarkVisitInput {
   ownerId:       EntityId;
   customerEmail: string;
+  serviceId?:    EntityId;
+  markedByMethod?: MarkedByMethod;
+  checkinToken?: string;
+  locationVerified?: boolean;
+  spendAmount?: number;
+  productsBought?: Array<{
+    productId?: string;
+    productName: string;
+    quantity: number;
+    points?: number;
+  }>;
 }
 
 export interface MarkPosVisitInput {
   shopId:        EntityId;
-  markedById:    EntityId;
   customerEmail: string;
+  serviceId?:    EntityId;
+  checkinToken?: string;
+  locationVerified?: boolean;
+  spendAmount?: number;
+  productsBought?: Array<{
+    productId?: string;
+    productName: string;
+    quantity: number;
+    points?: number;
+  }>;
 }
 
 export interface VisitHistoryInput extends PaginationInput {
@@ -203,9 +244,16 @@ export interface VisitHistoryInput extends PaginationInput {
 
 export interface CreateOrUpdateLoyaltyRuleInput {
   ownerId:           EntityId;
+  serviceId?:        EntityId;
   title:             string;
-  visitsRequired:    number;
-  rewardDescription: string;
+  loyaltyType:       LoyaltyType;
+  config:            Record<string, any>;
+  reward:            {
+    type: RewardType;
+    value: string;
+  };
+  visitsRequired?:    number;
+  rewardDescription?: string;
 }
 
 export interface GetAllActiveRulesInput {
@@ -230,7 +278,11 @@ export interface CreateOfferInput {
   title:        string;
   description:  string;
   imageUrl?:    string;
-  expiresAt:    Date;
+  discountType: DiscountType;
+  discountValue: string;
+  startDate:    Date;
+  endDate:      Date;
+  expiresAt?:   Date;
 }
 
 export interface UpdateOfferInput {
@@ -239,6 +291,10 @@ export interface UpdateOfferInput {
   title?:       string;
   description?: string;
   imageUrl?:    string;
+  discountType?: DiscountType;
+  discountValue?: string;
+  startDate?:    Date;
+  endDate?:      Date;
   expiresAt?:   Date;
   isActive?:    boolean;
 }
@@ -513,7 +569,6 @@ export type ShopWithOwner          = IShop       & { ownerId:      IUser       }
 export type MembershipWithShop     = IMembership & { shopId:       IShop       };
 export type MembershipWithCustomer = IMembership & { customerId:   IUser       };
 export type VisitWithMembership    = IVisit      & { membershipId: IMembership };
-export type RewardWithMembership   = IReward     & { membershipId: IMembership };
 export type OfferWithShop          = IOffer      & { shopId:       IShop       };
 export type AdWithShop             = IAd         & { shopId:       IShop       };
 export type MembershipWithShopAndRules = IMembership & {

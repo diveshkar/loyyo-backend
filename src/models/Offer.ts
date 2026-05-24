@@ -1,12 +1,18 @@
 import { Schema, model, Document, Types } from 'mongoose';
+import { DISCOUNT_TYPES, type DiscountType } from './enums.js';
 
 export interface IOffer extends Document {
   shopId: Types.ObjectId;
   title: string;
   description: string;
   imageUrl?: string;
-  expiresAt: Date;
+  discountType: DiscountType;
+  discountValue: string;
+  startDate: Date;
+  endDate: Date;
+  emailSent: boolean;
   isActive: boolean;
+  expiresAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -32,14 +38,41 @@ const OfferSchema = new Schema<IOffer>(
     imageUrl: {
       type: String,
     },
-    expiresAt: {
+    discountType: {
+      type: String,
+      enum: DISCOUNT_TYPES,
+      required: true,
+      default: 'fixed',
+    },
+    discountValue: {
+      type: String,
+      required: true,
+      default: '0',
+      trim: true,
+    },
+    startDate: {
       type: Date,
-      required: [true, 'Expiration date is required'],
+      required: true,
+      default: Date.now,
       index: true,
+    },
+    endDate: {
+      type: Date,
+      required: true,
+      index: true,
+    },
+    emailSent: {
+      type: Boolean,
+      required: true,
+      default: false,
     },
     isActive: {
       type: Boolean,
       default: true,
+      index: true,
+    },
+    expiresAt: {
+      type: Date,
       index: true,
     },
   },
@@ -47,5 +80,16 @@ const OfferSchema = new Schema<IOffer>(
     timestamps: true,
   }
 );
+
+OfferSchema.pre('validate', function () {
+  if (this.expiresAt && !this.endDate) {
+    this.endDate = this.expiresAt;
+  }
+
+  if (!this.expiresAt && this.endDate) {
+    this.expiresAt = this.endDate;
+  }
+
+});
 
 export const Offer = model<IOffer>('Offer', OfferSchema);

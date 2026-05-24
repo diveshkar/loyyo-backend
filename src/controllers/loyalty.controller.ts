@@ -9,9 +9,13 @@ import { EntityId } from '../services/types.js';
 export const createOrUpdateRule = asyncHandler(async (req, res) => {
   const authReq = req as AuthenticatedRequest;
   const result = await loyaltyService.createOrUpdateRuleForOwner({
-    ownerId:           authReq.user!._id,
-    title:             req.body.title,
-    visitsRequired:    req.body.visitsRequired,
+    ownerId: authReq.user!._id,
+    serviceId: req.body.serviceId,
+    title: req.body.title,
+    loyaltyType: req.body.loyaltyType,
+    config: req.body.config,
+    reward: req.body.reward,
+    visitsRequired: req.body.visitsRequired,
     rewardDescription: req.body.rewardDescription,
   });
   sendSuccess(res, result, 201);
@@ -38,8 +42,14 @@ export const getRuleHistory = asyncHandler(async (req, res) => {
 export const markVisit = asyncHandler(async (req, res) => {
   const authReq = req as AuthenticatedRequest;
   const result = await loyaltyService.recordVisitForOwner({
-    ownerId:       authReq.user!._id,
+    ownerId: authReq.user!._id,
     customerEmail: req.body.customerEmail,
+    serviceId: req.body.serviceId,
+    markedByMethod: 'manual',
+    checkinToken: req.body.checkinToken,
+    locationVerified: req.body.locationVerified,
+    spendAmount: req.body.spendAmount,
+    productsBought: req.body.productsBought,
   });
   sendSuccess(res, result, 201);
 });

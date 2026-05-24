@@ -1,9 +1,7 @@
-import type { IReward } from '../models/Reward.js';
+import type { INotification } from '../models/Notification.js';
 import type { RedeemRewardInput } from './types.js';
-import { notImplemented } from './notImplemented.js';
+import { redeemReward as redeemLoyaltyReward } from './loyalty.service.js';
 
-const serviceName = 'reward.service';
-
-export const redeemReward = async (_input: RedeemRewardInput): Promise<IReward> => {
-  return notImplemented(serviceName, 'redeemReward');
+export const redeemReward = async (input: RedeemRewardInput): Promise<INotification> => {
+  return redeemLoyaltyReward(input);
 };

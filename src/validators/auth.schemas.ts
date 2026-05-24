@@ -1,6 +1,19 @@
 import Joi from 'joi';
 
 const password = Joi.string().min(8).max(128).required();
+const shopType = Joi.string().valid(
+  'tea_shop',
+  'salon',
+  'restaurant',
+  'supermarket',
+  'clothing',
+  'electronics',
+  'gym',
+  'pharmacy',
+  'grocery',
+  'bakery',
+  'other'
+);
 
 export const registerCustomerSchema = Joi.object({
   name: Joi.string().trim().min(2).max(120).required(),
@@ -21,12 +34,13 @@ export const registerShopSchema = Joi.object({
   phone: Joi.string().trim().max(30),
   shopName: Joi.string().trim().min(2).max(160).required(),
   description: Joi.string().trim().min(1).max(2000).required(),
-  category: Joi.string().trim().min(2).max(80).required(),
+  type: shopType,
+  category: Joi.string().trim().min(2).max(80),
   address: Joi.string().trim().min(2).max(300).required(),
   longitude: Joi.number().min(-180).max(180).required(),
   latitude: Joi.number().min(-90).max(90).required(),
   logoUrl: Joi.string().uri(),
-});
+}).or('type', 'category');
 
 export const refreshTokenSchema = Joi.object({
   refreshToken: Joi.string().required(),

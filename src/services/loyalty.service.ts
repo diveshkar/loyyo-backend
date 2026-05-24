@@ -1,10 +1,12 @@
-import { Types }                         from 'mongoose';
-import { LoyaltyRule, ILoyaltyRule }     from '../models/LoyaltyRule.js';
-import { Membership, IMembership }       from '../models/Membership.js';
-import { Visit, IVisit }                 from '../models/Visit.js';
-import { Reward, IReward }               from '../models/Reward.js';
-import { Shop }                          from '../models/Shop.js';
-import { User }                          from '../models/User.js';
+import { Types } from 'mongoose';
+import { AppError } from '../middleware/errorHandler.js';
+import { LoyaltyRule, type ILoyaltyRule } from '../models/LoyaltyRule.js';
+import { Membership, type IMembership } from '../models/Membership.js';
+import { Notification, type INotification } from '../models/Notification.js';
+import { PointsLedger } from '../models/PointsLedger.js';
+import { Shop } from '../models/Shop.js';
+import { User } from '../models/User.js';
+import { Visit, type IVisit } from '../models/Visit.js';
 import type {
   CreateOrUpdateLoyaltyRuleInput,
   CustomerMembershipInput,
@@ -12,7 +14,6 @@ import type {
   EntityId,
   GetAllActiveRulesInput,
   GetMyRewardsInput,
-  GetRuleHistoryInput,
   JoinShopInput,
   MarkPosVisitInput,
   MarkVisitInput,
@@ -22,17 +23,9 @@ import type {
   ShopMembersInput,
   VisitHistoryInput,
 } from './types.js';
+import { MarkedByMethod } from '../models/enums.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
-
-const paginate = <T>(
-  items: T[],
-  total: number,
-  page:  number,
-  limit: number
-): PaginatedResult<T> => ({
+const paginate = <T>(items: T[], total: number, page = 1, limit = 20): PaginatedResult<T> => ({
   items,
   total,
   page,
@@ -40,177 +33,229 @@ const paginate = <T>(
   totalPages: Math.ceil(total / limit),
 });
 
-const resolveShopId = async (ownerId: EntityId): Promise<Types.ObjectId> => {
-  const shop = await Shop.findOne({
-    ownerId: new Types.ObjectId(ownerId.toString()),
-  }).select('_id').lean();
+const toObjectId = (id: EntityId): Types.ObjectId => new Types.ObjectId(id.toString());
 
-  if (!shop) throw new Error('Shop not found for this owner');
+const resolveShopId = async (ownerId: EntityId): Promise<Types.ObjectId> => {
+  const shop = await Shop.findOne({ ownerId: toObjectId(ownerId) }).select('_id').lean();
+  if (!shop) throw new AppError('Shop not found for this owner', 404);
   return shop._id as Types.ObjectId;
 };
 
-const isAlreadyVisitedToday = async (
-  customerId: Types.ObjectId,
-  shopId:     Types.ObjectId
-): Promise<boolean> => {
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
+const getNumber = (value: unknown, fallback = 0): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 
-  const endOfDay = new Date();
-  endOfDay.setHours(23, 59, 59, 999);
+const calculateProductPoints = (products: MarkVisitInput['productsBought'] = []): number =>
+  products.reduce((sum, product) => sum + getNumber(product.points) * product.quantity, 0);
 
-  const existing = await Visit.findOne({
-    customerId,
-    shopId,
-    createdAt: { $gte: startOfDay, $lte: endOfDay },
-  }).lean();
-
-  return !!existing;
+const calculateVisitPoints = (rule: ILoyaltyRule, spendAmount = 0, products: MarkVisitInput['productsBought'] = []): number => {
+  const config = rule.config ?? {};
+  return (
+    getNumber(config.points_per_visit) +
+    getNumber(config.points_per_spend) * spendAmount +
+    calculateProductPoints(products) +
+    getNumber(config.points_multiplier, 1) * 0
+  );
 };
 
-/**
- * Core visit logic — processes ONE visit across ALL active rules
- *
- * For each rule in membership.ruleProgress:
- *   → increment visitCount
- *   → if visitCount >= rule.visitsRequired → reward earned → reset count
- *
- * One visit can earn multiple rewards simultaneously
- */
+const isRuleCompleted = (rule: ILoyaltyRule, progress: IMembership['ruleProgress'][number]): boolean => {
+  const config = rule.config ?? {};
+
+  switch (rule.loyaltyType) {
+    case 'visit':
+      return progress.visitCount >= getNumber(config.visit_count_target, Number.MAX_SAFE_INTEGER);
+    case 'points':
+      return progress.pointsCount >= getNumber(config.points_target, Number.MAX_SAFE_INTEGER);
+    case 'spend':
+      return progress.spendCount >= getNumber(config.spend_target, Number.MAX_SAFE_INTEGER);
+    case 'hybrid':
+      return (
+        progress.visitCount >= getNumber(config.visits_needed, Number.MAX_SAFE_INTEGER) &&
+        progress.pointsCount >= getNumber(config.points_needed, Number.MAX_SAFE_INTEGER)
+      );
+    default:
+      return false;
+  }
+};
+
+const createRewardNotification = async (
+  membership: IMembership,
+  rule: ILoyaltyRule
+): Promise<INotification> => {
+  return Notification.create({
+    customerId: membership.customerId,
+    shopId: membership.shopId,
+    type: 'reward_earned',
+    title: rule.title,
+    message: rule.reward?.value ?? 'Reward earned',
+    isRead: false,
+    emailSent: false,
+  });
+};
+
 const processVisit = async (
   membership: IMembership,
-  shopId:     Types.ObjectId,
-  markedById: Types.ObjectId,
-): Promise<{
-  membership:    IMembership;
-  rewardsEarned: IReward[];
-}> => {
-  const rewardsEarned: IReward[] = [];
-  const updatedProgress          = [...membership.ruleProgress];
+  input: {
+    serviceId?: EntityId;
+    markedByMethod: MarkedByMethod;
+    checkinToken?: string;
+    locationVerified?: boolean;
+    spendAmount?: number;
+    productsBought?: MarkVisitInput['productsBought'];
+  }
+): Promise<{ membership: IMembership; visit: IVisit; rewardsEarned: INotification[]; pointsEarned: number }> => {
+  const spendAmount = input.spendAmount ?? 0;
+  const productsBought = input.productsBought ?? [];
+  const rewardsEarned: INotification[] = [];
+  let totalPointsEarned = 0;
 
-  for (let i = 0; i < updatedProgress.length; i++) {
-    const progress = updatedProgress[i];
+  const activeRules = await LoyaltyRule.find({
+    shopId: membership.shopId,
+    ...(input.serviceId ? { serviceId: toObjectId(input.serviceId) } : {}),
+    isActive: true,
+  });
 
-    // Get the rule for this progress entry
-    const rule = await LoyaltyRule.findById(progress.ruleId).lean();
-    if (!rule || !rule.isActive) continue; // skip deactivated rules
+  const progressByRule = new Map(membership.ruleProgress.map((progress) => [progress.ruleId.toString(), progress]));
+  const updatedProgress = [...membership.ruleProgress];
+
+  for (const rule of activeRules) {
+    let progress = progressByRule.get(String(rule._id));
+    if (!progress) {
+      progress = {
+        ruleId: rule._id as Types.ObjectId,
+        visitCount: 0,
+        pointsCount: 0,
+        spendCount: 0,
+        version: rule.version,
+        status: 'active',
+      };
+      updatedProgress.push(progress);
+      progressByRule.set(String(rule._id), progress);
+    }
+
+    if (progress.status !== 'active') continue;
 
     progress.visitCount += 1;
+    progress.spendCount += spendAmount;
 
-    if (progress.visitCount >= rule.visitsRequired) {
-      // Reward earned for this rule
-      const reward = await Reward.create({
-        membershipId:  membership._id,
-        shopId,
-        customerId:    membership.customerId,
-        ruleVersionId: rule._id,
-        earnedAt:      new Date(),
-        status:        'pending',
-      });
+    const pointsFromRule = calculateVisitPoints(rule, spendAmount, productsBought);
+    progress.pointsCount += pointsFromRule;
+    totalPointsEarned += pointsFromRule;
 
-      rewardsEarned.push(reward);
-
-      // Reset only this rule's count
-      progress.visitCount = 0;
+    if (isRuleCompleted(rule, progress)) {
+      progress.status = 'completed';
+      rewardsEarned.push(await createRewardNotification(membership, rule));
     }
   }
 
-  // Record the visit document
-  // Use first active rule as the primary ruleVersionId for audit
-  const primaryRule = updatedProgress.find(p => p.visitCount >= 0);
-  await Visit.create({
-    membershipId:  membership._id,
-    shopId,
-    customerId:    membership.customerId,
-    markedBy:      markedById,
-    ruleVersionId: primaryRule?.ruleId ?? membership.ruleProgress[0]?.ruleId,
+  const visit = await Visit.create({
+    customerId: membership.customerId,
+    shopId: membership.shopId,
+    membershipId: membership._id,
+    markedByMethod: input.markedByMethod,
+    checkinToken: input.checkinToken,
+    locationVerified: input.locationVerified ?? false,
+    spendAmount,
+    pointsEarned: totalPointsEarned,
+    productsBought,
   });
 
-  // Save updated progress + membership fields
   const updatedMembership = await Membership.findByIdAndUpdate(
     membership._id,
     {
       $set: {
         ruleProgress: updatedProgress,
-        lastVisitAt:  new Date(),
+        lastVisitAt: new Date(),
       },
-      $inc: { totalVisits: 1 },
+      $inc: {
+        totalVisits: 1,
+        totalPoints: totalPointsEarned,
+        totalSpend: spendAmount,
+      },
     },
-    { new: true }
-  ) as IMembership;
+    { new: true, runValidators: true }
+  );
 
-  return { membership: updatedMembership, rewardsEarned };
+  if (!updatedMembership) throw new AppError('Membership update failed', 500);
+
+  if (totalPointsEarned !== 0) {
+    await PointsLedger.create({
+      customerId: membership.customerId,
+      shopId: membership.shopId,
+      serviceId: input.serviceId ? toObjectId(input.serviceId) : undefined,
+      visitRef: visit._id,
+      action: 'earn',
+      source: spendAmount > 0 ? 'spend' : productsBought.length ? 'product' : 'visit',
+      points: totalPointsEarned,
+      spendAmount,
+      balanceAfter: updatedMembership.totalPoints,
+      note: 'Visit points earned',
+    });
+  }
+
+  await Notification.create({
+    customerId: membership.customerId,
+    shopId: membership.shopId,
+    type: 'visit_marked',
+    title: 'Visit marked',
+    message: 'Your loyalty visit was recorded.',
+    isRead: false,
+    emailSent: false,
+  });
+
+  return { membership: updatedMembership, visit, rewardsEarned, pointsEarned: totalPointsEarned };
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// LOYALTY RULES
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Create a new rule OR update an existing one
- *
- * If title matches existing rule → version it (deactivate old, create new)
- * If new title → brand new rule added to shop
- *
- * Existing member progress on old version is preserved
- */
 export const createOrUpdateRuleForOwner = async (
   input: CreateOrUpdateLoyaltyRuleInput
 ): Promise<ILoyaltyRule> => {
-  const { ownerId, title, visitsRequired, rewardDescription } = input;
+  const shopId = await resolveShopId(input.ownerId);
+  const serviceId = input.serviceId ? toObjectId(input.serviceId) : undefined;
+  const config = { ...input.config };
+  const reward = input.reward ?? {
+    type: 'voucher',
+    value: input.rewardDescription ?? 'Reward',
+  };
 
-  const shopId = await resolveShopId(ownerId);
-
-  // Check if a rule with this title already exists for this shop
-  const existingRule = await LoyaltyRule.findOne({
-    shopId,
-    title:    { $regex: new RegExp(`^${title}$`, 'i') },
-    isActive: true,
-  }).lean();
-
-  if (existingRule) {
-    // Version it — deactivate old, create new version
-    await LoyaltyRule.findByIdAndUpdate(
-      existingRule._id,
-      { $set: { isActive: false } }
-    );
-
-    const newRule = await LoyaltyRule.create({
-      shopId,
-      title,
-      visitsRequired,
-      rewardDescription,
-      version:  existingRule.version + 1,
-      isActive: true,
-    });
-
-    // Note: existing members keep old ruleId in ruleProgress
-    // They get upgraded to new version after redeeming current cycle
-
-    return newRule;
+  if (input.visitsRequired && !config.visit_count_target) {
+    config.visit_count_target = input.visitsRequired;
   }
 
-  // Brand new rule for this shop
-  // Count existing rules to set version = 1
-  const newRule = await LoyaltyRule.create({
+  const existingRule = await LoyaltyRule.findOne({
     shopId,
-    title,
-    visitsRequired,
-    rewardDescription,
-    version:  1,
+    ...(serviceId ? { serviceId } : {}),
+    title: { $regex: new RegExp(`^${input.title}$`, 'i') },
     isActive: true,
   });
 
-  // Add this new rule to ALL existing memberships for this shop
-  // with visitCount: 0 so they start fresh on this new rule
+  if (existingRule) {
+    existingRule.isActive = false;
+    await existingRule.save();
+  }
+
+  const newRule = await LoyaltyRule.create({
+    shopId,
+    serviceId,
+    title: input.title,
+    loyaltyType: input.loyaltyType,
+    config,
+    reward,
+    rewardDescription: reward.value,
+    visitsRequired: config.visit_count_target,
+    version: existingRule ? existingRule.version + 1 : 1,
+    isActive: true,
+  });
+
   await Membership.updateMany(
     { shopId, isActive: true },
     {
       $push: {
         ruleProgress: {
-          ruleId:     newRule._id,
+          ruleId: newRule._id,
           visitCount: 0,
-          version:    1,
+          pointsCount: 0,
+          spendCount: 0,
+          version: newRule.version,
+          status: 'active',
         },
       },
     }
@@ -219,150 +264,104 @@ export const createOrUpdateRuleForOwner = async (
   return newRule;
 };
 
-export const getAllActiveRules = async (
-  input: GetAllActiveRulesInput
-): Promise<ILoyaltyRule[]> => {
+export const getAllActiveRules = async (input: GetAllActiveRulesInput): Promise<ILoyaltyRule[]> => {
   const shopId = await resolveShopId(input.ownerId);
-
-  return LoyaltyRule.find({ shopId, isActive: true })
-    .sort({ createdAt: -1 })
-    .lean();
+  return LoyaltyRule.find({ shopId, isActive: true }).sort({ createdAt: -1 }).lean();
 };
 
-export const getRuleHistory = async (
-  input: GetAllActiveRulesInput
-): Promise<ILoyaltyRule[]> => {
+export const getRuleHistory = async (input: GetAllActiveRulesInput): Promise<ILoyaltyRule[]> => {
   const shopId = await resolveShopId(input.ownerId);
-
-  return LoyaltyRule.find({ shopId })
-    .sort({ createdAt: -1, version: -1 })
-    .lean();
+  return LoyaltyRule.find({ shopId }).sort({ createdAt: -1, version: -1 }).lean();
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// VISIT MARKING
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const recordVisitForOwner = async (
   input: MarkVisitInput
-): Promise<{ membership: IMembership; rewardsEarned: IReward[] }> => {
-  const { ownerId, customerEmail } = input;
+): Promise<{ membership: IMembership; visit: IVisit; rewardsEarned: INotification[]; pointsEarned: number }> => {
+  const shopId = await resolveShopId(input.ownerId);
+  const customer = await User.findOne({ email: input.customerEmail.toLowerCase().trim() }).select('_id').lean();
+  if (!customer) throw new AppError('Customer not found with this email', 404);
 
-  const shopId = await resolveShopId(ownerId);
+  const membership = await Membership.findOne({ customerId: customer._id, shopId });
+  if (!membership) throw new AppError('This customer has not joined your shop', 404);
+  if (!membership.isActive) throw new AppError('This membership is inactive', 403);
 
-  // Find customer by email
-  const customer = await User.findOne({
-    email: customerEmail.toLowerCase().trim(),
-  }).select('_id').lean();
-  if (!customer) throw new Error('Customer not found with this email');
-
-  const customerId = customer._id as Types.ObjectId;
-
-  // Find membership
-  const membership = await Membership.findOne({ customerId, shopId });
-  if (!membership)        throw new Error('This customer has not joined your shop');
-  if (!membership.isActive) throw new Error('This membership is inactive');
-
-  // One visit per day
-  const alreadyVisited = await isAlreadyVisitedToday(customerId, shopId);
-  if (alreadyVisited) throw new Error('This customer has already been marked today');
-
-  // Must have at least one rule to track progress
-  if (!membership.ruleProgress.length) {
-    throw new Error('This shop has no active loyalty rules');
-  }
-
-  return processVisit(
-    membership,
-    shopId,
-    new Types.ObjectId(ownerId.toString()),
-  );
+  return processVisit(membership, {
+    serviceId: input.serviceId,
+    markedByMethod: input.markedByMethod ?? 'manual',
+    checkinToken: input.checkinToken,
+    locationVerified: input.locationVerified,
+    spendAmount: input.spendAmount,
+    productsBought: input.productsBought,
+  });
 };
 
 export const recordPosVisit = async (
   input: MarkPosVisitInput
-): Promise<{ membership: IMembership; rewardsEarned: IReward[] }> => {
-  const { shopId, markedById, customerEmail } = input;
+): Promise<{ membership: IMembership; visit: IVisit; rewardsEarned: INotification[]; pointsEarned: number }> => {
+  const shopId = toObjectId(input.shopId);
+  const shop = await Shop.findById(shopId).select('_id status').lean();
+  if (!shop) throw new AppError('Shop not found', 404);
+  if (shop.status !== 'active') throw new AppError('Shop is not active', 403);
 
-  const shopObjectId = new Types.ObjectId(shopId.toString());
+  const customer = await User.findOne({ email: input.customerEmail.toLowerCase().trim() }).select('_id').lean();
+  if (!customer) throw new AppError('Customer not found', 404);
 
-  const shop = await Shop.findById(shopObjectId).select('_id status').lean();
-  if (!shop)                   throw new Error('Shop not found');
-  if (shop.status !== 'active') throw new Error('Shop is not active');
+  const membership = await Membership.findOne({ customerId: customer._id, shopId });
+  if (!membership) throw new AppError('Customer has not joined this shop', 404);
+  if (!membership.isActive) throw new AppError('Membership is inactive', 403);
 
-  const customer = await User.findOne({
-    email: customerEmail.toLowerCase().trim(),
-  }).select('_id').lean();
-  if (!customer) throw new Error('Customer not found');
-
-  const customerId = customer._id as Types.ObjectId;
-
-  const membership = await Membership.findOne({ customerId, shopId: shopObjectId });
-  if (!membership)          throw new Error('Customer has not joined this shop');
-  if (!membership.isActive)  throw new Error('Membership is inactive');
-
-  const alreadyVisited = await isAlreadyVisitedToday(customerId, shopObjectId);
-  if (alreadyVisited) throw new Error('Customer already visited today');
-
-  if (!membership.ruleProgress.length) {
-    throw new Error('This shop has no active loyalty rules');
-  }
-
-  return processVisit(
-    membership,
-    shopObjectId,
-    new Types.ObjectId(markedById.toString()),
-  );
+  return processVisit(membership, {
+    serviceId: input.serviceId,
+    markedByMethod: 'plugin',
+    checkinToken: input.checkinToken,
+    locationVerified: input.locationVerified,
+    spendAmount: input.spendAmount,
+    productsBought: input.productsBought,
+  });
 };
 
 export const getVisitHistory = async (
   input: VisitHistoryInput
 ): Promise<PaginatedResult<IVisit>> => {
-  const { membershipId, requesterId, page = 1, limit = 20 } = input;
+  const page = input.page ?? 1;
+  const limit = input.limit ?? 20;
+  const membership = await Membership.findById(input.membershipId).lean();
+  if (!membership) throw new AppError('Membership not found', 404);
 
-  const membership = await Membership.findById(membershipId).lean();
-  if (!membership) throw new Error('Membership not found');
-
-  // Verify requester owns this shop
-  const shopId = await resolveShopId(requesterId).catch(() => null);
-  if (!shopId || shopId.toString() !== membership.shopId.toString()) {
-    throw new Error('Unauthorized to view this visit history');
+  const shopId = await resolveShopId(input.requesterId);
+  if (shopId.toString() !== membership.shopId.toString()) {
+    throw new AppError('Unauthorized to view this visit history', 403);
   }
 
   const [items, total] = await Promise.all([
-    Visit.find({ membershipId })
+    Visit.find({ membershipId: membership._id })
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
-    Visit.countDocuments({ membershipId }),
+    Visit.countDocuments({ membershipId: membership._id }),
   ]);
 
   return paginate(items as IVisit[], total, page, limit);
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MEMBERS
-// ─────────────────────────────────────────────────────────────────────────────
-
 export const getShopMembers = async (
   input: ShopMembersInput
 ): Promise<PaginatedResult<IMembership>> => {
-  const { ownerId, search, page = 1, limit = 20 } = input;
-
-  const shopId = await resolveShopId(ownerId);
+  const page = input.page ?? 1;
+  const limit = input.limit ?? 20;
+  const shopId = await resolveShopId(input.ownerId);
 
   let customerIds: Types.ObjectId[] | undefined;
-  if (search) {
+  if (input.search) {
     const customers = await User.find({
       $or: [
-        { name:  { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
+        { name: { $regex: input.search, $options: 'i' } },
+        { email: { $regex: input.search, $options: 'i' } },
+        { phone: { $regex: input.search, $options: 'i' } },
       ],
     }).select('_id').lean();
-
-    customerIds = customers.map((c) => c._id as Types.ObjectId);
+    customerIds = customers.map((customer) => customer._id as Types.ObjectId);
   }
 
   const filter: Record<string, unknown> = { shopId, isActive: true };
@@ -370,7 +369,8 @@ export const getShopMembers = async (
 
   const [items, total] = await Promise.all([
     Membership.find(filter)
-      .populate('customerId', 'name email phone avatarUrl')
+      .populate('customerId', 'name email phone profilePhoto')
+      .populate('ruleProgress.ruleId', 'title loyaltyType config reward version serviceId')
       .sort({ lastVisitAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
@@ -381,182 +381,110 @@ export const getShopMembers = async (
   return paginate(items as IMembership[], total, page, limit);
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MEMBERSHIP
-// ─────────────────────────────────────────────────────────────────────────────
+export const joinShop = async (input: JoinShopInput): Promise<IMembership> => {
+  const customerId = toObjectId(input.customerId);
+  const shopId = toObjectId(input.shopId);
+  const shop = await Shop.findById(shopId).select('status').lean();
+  if (!shop) throw new AppError('Shop not found', 404);
+  if (shop.status !== 'active') throw new AppError('This shop is not active', 403);
 
-export const joinShop = async (
-  input: JoinShopInput
-): Promise<IMembership> => {
-  const { customerId, shopId } = input;
+  const existing = await Membership.findOne({ customerId, shopId }).lean();
+  if (existing) throw new AppError('You are already a member of this shop', 409);
 
-  const shopObjectId     = new Types.ObjectId(shopId.toString());
-  const customerObjectId = new Types.ObjectId(customerId.toString());
-
-  // Verify shop is active
-  const shop = await Shop.findById(shopObjectId).select('status').lean();
-  if (!shop)                    throw new Error('Shop not found');
-  if (shop.status !== 'active')  throw new Error('This shop is not active');
-
-  // Check already a member
-  const existing = await Membership.findOne({
-    customerId: customerObjectId,
-    shopId:     shopObjectId,
-  }).lean();
-  if (existing) throw new Error('You are already a member of this shop');
-
-  // Get ALL active rules for this shop
-  const activeRules = await LoyaltyRule.find({
-    shopId:   shopObjectId,
-    isActive: true,
-  }).lean();
-
-  // Initialize progress for every active rule
-  const ruleProgress = activeRules.map((rule) => ({
-    ruleId:     rule._id,
-    visitCount: 0,
-    version:    rule.version,
-  }));
-
-  const membership = await Membership.create({
-    customerId:  customerObjectId,
-    shopId:      shopObjectId,
-    ruleProgress,
+  const activeRules = await LoyaltyRule.find({ shopId, isActive: true }).lean();
+  return Membership.create({
+    customerId,
+    shopId,
+    ruleProgress: activeRules.map((rule) => ({
+      ruleId: rule._id,
+      visitCount: 0,
+      pointsCount: 0,
+      spendCount: 0,
+      version: rule.version,
+      status: 'active',
+    })),
     totalVisits: 0,
-    joinedAt:    new Date(),
-    isActive:    true,
+    totalPoints: 0,
+    totalSpend: 0,
+    tierLevel: 'none',
+    joinedAt: new Date(),
+    isActive: true,
   });
-
-  return membership;
 };
 
 export const getMyMemberships = async (
   input: CustomerMembershipsInput
 ): Promise<PaginatedResult<MembershipWithShopAndRules>> => {
-  const { customerId, page = 1, limit = 20 } = input;
+  const page = input.page ?? 1;
+  const limit = input.limit ?? 20;
+  const filter = { customerId: toObjectId(input.customerId), isActive: true };
 
   const [items, total] = await Promise.all([
-    Membership.find({
-      customerId: new Types.ObjectId(customerId.toString()),
-      isActive:   true,
-    })
-      .populate('shopId',                'name category logoUrl address')
-      .populate('ruleProgress.ruleId',   'title visitsRequired rewardDescription version')
+    Membership.find(filter)
+      .populate('shopId', 'name type address locationLng locationLat logoUrl profilePhoto')
+      .populate('ruleProgress.ruleId', 'title loyaltyType config reward version serviceId')
       .sort({ lastVisitAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
-    Membership.countDocuments({
-      customerId: new Types.ObjectId(customerId.toString()),
-      isActive:   true,
-    }),
+    Membership.countDocuments(filter),
   ]);
 
-  return paginate(
-    items as unknown as MembershipWithShopAndRules[],
-    total,
-    page,
-    limit
-  );
+  return paginate(items as unknown as MembershipWithShopAndRules[], total, page, limit);
 };
 
 export const getMembershipCard = async (
   input: CustomerMembershipInput
 ): Promise<MembershipWithShopAndRules> => {
-  const { customerId, shopId } = input;
-
   const membership = await Membership.findOne({
-    customerId: new Types.ObjectId(customerId.toString()),
-    shopId:     new Types.ObjectId(shopId.toString()),
+    customerId: toObjectId(input.customerId),
+    shopId: toObjectId(input.shopId),
   })
-    .populate('shopId',              'name category logoUrl address')
-    .populate('ruleProgress.ruleId', 'title visitsRequired rewardDescription version')
+    .populate('shopId', 'name type address locationLng locationLat logoUrl profilePhoto')
+    .populate('ruleProgress.ruleId', 'title loyaltyType config reward version serviceId')
     .lean();
 
-  if (!membership) throw new Error('Membership not found');
-
+  if (!membership) throw new AppError('Membership not found', 404);
   return membership as unknown as MembershipWithShopAndRules;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// REWARDS
-// ─────────────────────────────────────────────────────────────────────────────
-
 export const getMyRewards = async (
   input: GetMyRewardsInput
-): Promise<PaginatedResult<IReward>> => {
-  const { customerId, page = 1, limit = 20, status } = input;
-
+): Promise<PaginatedResult<INotification>> => {
+  const page = input.page ?? 1;
+  const limit = input.limit ?? 20;
   const filter: Record<string, unknown> = {
-    customerId: new Types.ObjectId(customerId.toString()),
+    customerId: toObjectId(input.customerId),
+    type: { $in: ['reward_earned', 'reward_claimed'] },
   };
-  if (status) filter.status = status;
 
   const [items, total] = await Promise.all([
-    Reward.find(filter)
-      .populate('shopId',        'name logoUrl')
-      .populate('ruleVersionId', 'title rewardDescription')
-      .sort({ earnedAt: -1 })
+    Notification.find(filter)
+      .populate('shopId', 'name type')
+      .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
-    Reward.countDocuments(filter),
+    Notification.countDocuments(filter),
   ]);
 
-  return paginate(items as IReward[], total, page, limit);
+  return paginate(items as INotification[], total, page, limit);
 };
 
-export const redeemReward = async (
-  input: RedeemRewardInput
-): Promise<IReward> => {
-  const { rewardId, ownerId } = input;
-
-  const shopId = await resolveShopId(ownerId);
-
-  const reward = await Reward.findOne({
-    _id:    new Types.ObjectId(rewardId.toString()),
+export const redeemReward = async (input: RedeemRewardInput): Promise<INotification> => {
+  const shopId = await resolveShopId(input.ownerId);
+  const reward = await Notification.findOne({
+    _id: toObjectId(input.rewardId),
     shopId,
+    type: 'reward_earned',
   });
-  if (!reward)                      throw new Error('Reward not found');
-  if (reward.status === 'redeemed')  throw new Error('Reward already redeemed');
 
-  // Mark redeemed
-  reward.status     = 'redeemed';
-  reward.redeemedAt = new Date();
+  if (!reward) throw new AppError('Reward notification not found', 404);
+
+  reward.type = 'reward_claimed';
+  reward.isRead = true;
+  reward.title = `Claimed: ${reward.title}`;
   await reward.save();
-
-  // After redemption — upgrade this rule's version in membership
-  // to the latest active version of that same rule title
-  const redeemedRule = await LoyaltyRule.findById(
-    reward.ruleVersionId
-  ).lean();
-
-  if (redeemedRule) {
-    const latestVersion = await LoyaltyRule.findOne({
-      shopId,
-      title:    redeemedRule.title,
-      isActive: true,
-    }).lean();
-
-    if (
-      latestVersion &&
-      latestVersion.version > redeemedRule.version
-    ) {
-      // Upgrade this specific rule entry in ruleProgress
-      await Membership.findOneAndUpdate(
-        {
-          _id:                   reward.membershipId,
-          'ruleProgress.ruleId': reward.ruleVersionId,
-        },
-        {
-          $set: {
-            'ruleProgress.$.ruleId':  latestVersion._id,
-            'ruleProgress.$.version': latestVersion.version,
-          },
-        }
-      );
-    }
-  }
 
   return reward;
 };
