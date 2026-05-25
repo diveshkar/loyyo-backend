@@ -1,41 +1,39 @@
-import type { Types } from 'mongoose';
-import { IAd }          from '../models/Ad.js';
-import { IAuditLog }    from '../models/AuditLog.js';
-import { IShop }        from '../models/Shop.js';
-import { IUser }        from '../models/User.js';
-import { IMembership }  from '../models/Membership.js';
-import { IVisit }       from '../models/Visit.js';
-import { IOffer }       from '../models/Offer.js';
-import { IPayment }     from '../models/Payment.js';
-import { ILoyaltyRule } from '../models/LoyaltyRule.js';
+import type { Types }    from 'mongoose';
+import { IAd }           from '../models/Ad.js';
+import { IAuditLog }     from '../models/AuditLog.js';
+import { IShop }         from '../models/Shop.js';
+import { IUser }         from '../models/User.js';
+import { IMembership }   from '../models/Membership.js';
+import { IVisit }        from '../models/Visit.js';
+import { IOffer }        from '../models/Offer.js';
+import { IPayment }      from '../models/Payment.js';
+import { ILoyaltyRule }  from '../models/LoyaltyRule.js';
+import { IPointsLedger } from '../models/PointsLedger.js';
+import { INotification } from '../models/Notification.js';
+import { IReferral }     from '../models/Referral.js';
+import { ICheckinToken } from '../models/CheckinToken.js';
+import type { UsedByDevice } from '../models/enums.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PRIMITIVES
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type EntityId      = string | Types.ObjectId;
-export type UserRole      = 'customer' | 'shop' | 'admin';
-export type ShopPlan      = 'free' | 'basic' | 'standard' | 'premium';
-export type ShopStatus    = 'pending' | 'active' | 'suspended';
-export type ShopType      =
-  | 'tea_shop'
-  | 'salon'
-  | 'restaurant'
-  | 'supermarket'
-  | 'clothing'
-  | 'electronics'
-  | 'gym'
-  | 'pharmacy'
-  | 'grocery'
-  | 'bakery'
-  | 'other';
-export type PaymentPlan   = 'basic' | 'standard' | 'premium';
-export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
-export type AdType        = 'internal' | 'boost' | 'external';
-export type PosterStyle   = 'modern' | 'playful' | 'elegant' | 'bold';
-export type LoyaltyType   = 'visit' | 'points' | 'spend' | 'product' | 'hybrid' | 'tier' | 'referral' | 'event';
-export type RewardType    = 'free_item' | 'percent_discount' | 'fixed_discount' | 'cashback' | 'voucher' | 'buy_x_get_y';
-export type DiscountType  = 'percent' | 'free_item' | 'fixed' | 'cashback';
+export type EntityId       = string | Types.ObjectId;
+export type UserRole       = 'customer' | 'shop' | 'admin';
+export type ShopPlan       = 'free' | 'basic' | 'standard' | 'premium';
+export type ShopStatus     = 'pending' | 'active' | 'suspended';
+export type ShopType       =
+  | 'tea_shop' | 'salon'       | 'restaurant'
+  | 'supermarket' | 'clothing' | 'electronics'
+  | 'gym' | 'pharmacy'         | 'grocery'
+  | 'bakery' | 'other';
+export type PaymentPlan    = 'basic' | 'standard' | 'premium';
+export type PaymentStatus  = 'pending' | 'paid' | 'failed' | 'refunded';
+export type AdType         = 'internal' | 'boost' | 'external';
+export type PosterStyle    = 'modern' | 'playful' | 'elegant' | 'bold';
+export type LoyaltyType    = 'visit' | 'points' | 'spend' | 'product' | 'hybrid' | 'tier' | 'referral' | 'event';
+export type RewardType     = 'free_item' | 'percent_discount' | 'fixed_discount' | 'cashback' | 'voucher' | 'buy_x_get_y';
+export type DiscountType   = 'percent' | 'free_item' | 'fixed' | 'cashback';
 export type MarkedByMethod = 'qr_scan' | 'barcode_scan' | 'kiosk' | 'plugin' | 'manual';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -137,11 +135,11 @@ export interface PublicShopInput {
 }
 
 export interface NearbyShopsInput extends PaginationInput {
-  latitude:   number;
-  longitude:  number;
-  radiusKm?:  number;
-  type?:      ShopType;
-  category?:  string;
+  latitude:  number;
+  longitude: number;
+  radiusKm?: number;
+  type?:     ShopType;
+  category?: string;
 }
 
 export interface ShopStatsInput {
@@ -174,12 +172,12 @@ export interface RotateShopApiTokenResult {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface IRuleProgress {
-  ruleId:     EntityId;
-  visitCount: number;
+  ruleId:      EntityId;
+  visitCount:  number;
   pointsCount: number;
-  spendCount: number;
-  version:    number;
-  status:     'active' | 'completed' | 'expired';
+  spendCount:  number;
+  version:     number;
+  status:      'active' | 'completed' | 'expired';
 }
 
 export interface JoinShopInput {
@@ -197,8 +195,8 @@ export interface CustomerMembershipInput {
 }
 
 export interface ShopMembersInput extends PaginationInput {
-  ownerId:  EntityId;
-  search?:  string;
+  ownerId: EntityId;
+  search?: string;
 }
 
 export interface RedeemRewardInput {
@@ -207,33 +205,37 @@ export interface RedeemRewardInput {
 }
 
 export interface MarkVisitInput {
-  ownerId:       EntityId;
-  customerEmail: string;
-  serviceId?:    EntityId;
-  markedByMethod?: MarkedByMethod;
-  checkinToken?: string;
+  ownerId:          EntityId;
+  customerEmail:    string;
+  serviceId?:       EntityId;
+  markedByMethod?:  MarkedByMethod;
+  checkinToken?:    string;
   locationVerified?: boolean;
-  spendAmount?: number;
-  productsBought?: Array<{
-    productId?: string;
-    productName: string;
-    quantity: number;
-    points?: number;
+  customerLat?:     number;    // added — GPS fraud check
+  customerLng?:     number;    // added — GPS fraud check
+  spendAmount?:     number;
+  productsBought?:  Array<{
+    productId?:   string;
+    productName:  string;
+    quantity:     number;
+    points?:      number;
   }>;
 }
 
 export interface MarkPosVisitInput {
-  shopId:        EntityId;
-  customerEmail: string;
-  serviceId?:    EntityId;
-  checkinToken?: string;
+  shopId:           EntityId;
+  customerEmail:    string;
+  serviceId?:       EntityId;
+  checkinToken?:    string;
   locationVerified?: boolean;
-  spendAmount?: number;
-  productsBought?: Array<{
-    productId?: string;
-    productName: string;
-    quantity: number;
-    points?: number;
+  customerLat?:     number;    // added — GPS fraud check
+  customerLng?:     number;    // added — GPS fraud check
+  spendAmount?:     number;
+  productsBought?:  Array<{
+    productId?:   string;
+    productName:  string;
+    quantity:     number;
+    points?:      number;
   }>;
 }
 
@@ -243,13 +245,13 @@ export interface VisitHistoryInput extends PaginationInput {
 }
 
 export interface CreateOrUpdateLoyaltyRuleInput {
-  ownerId:           EntityId;
-  serviceId?:        EntityId;
-  title:             string;
-  loyaltyType:       LoyaltyType;
-  config:            Record<string, any>;
-  reward:            {
-    type: RewardType;
+  ownerId:            EntityId;
+  serviceId?:         EntityId;
+  title:              string;
+  loyaltyType:        LoyaltyType;
+  config:             Record<string, any>;
+  reward: {
+    type:  RewardType;
     value: string;
   };
   visitsRequired?:    number;
@@ -270,37 +272,141 @@ export interface GetMyRewardsInput extends PaginationInput {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CHECKIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface GenerateCheckinTokenInput {
+  customerId: EntityId;
+  shopId?:    EntityId;
+}
+
+export interface GenerateCheckinTokenResult {
+  token:         string;
+  qrFormat:      string;
+  barcodeFormat: string;
+  expiresAt:     Date;
+}
+
+export interface VerifyCheckinTokenInput {
+  token:        string;
+  shopId:       EntityId;
+  usedByDevice: UsedByDevice;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // OFFERS
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface CreateOfferInput {
-  ownerId:      EntityId;
-  title:        string;
-  description:  string;
-  imageUrl?:    string;
-  discountType: DiscountType;
+  ownerId:       EntityId;
+  title:         string;
+  description:   string;
+  imageUrl?:     string;
+  discountType:  DiscountType;
   discountValue: string;
-  startDate:    Date;
-  endDate:      Date;
-  expiresAt?:   Date;
+  startDate:     Date;
+  endDate:       Date;
+  expiresAt?:    Date;
 }
 
 export interface UpdateOfferInput {
-  ownerId:      EntityId;
-  offerId:      EntityId;
-  title?:       string;
-  description?: string;
-  imageUrl?:    string;
-  discountType?: DiscountType;
+  ownerId:        EntityId;
+  offerId:        EntityId;
+  title?:         string;
+  description?:   string;
+  imageUrl?:      string;
+  discountType?:  DiscountType;
   discountValue?: string;
-  startDate?:    Date;
-  endDate?:      Date;
-  expiresAt?:   Date;
-  isActive?:    boolean;
+  startDate?:     Date;
+  endDate?:       Date;
+  expiresAt?:     Date;
+  isActive?:      boolean;
+}
+
+export interface GetShopOffersInput extends PaginationInput {
+  ownerId:   EntityId;
+  isActive?: boolean;
 }
 
 export interface CustomerOffersInput extends PaginationInput {
   customerId: EntityId;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface GetNotificationsInput extends PaginationInput {
+  customerId: EntityId;
+}
+
+export interface MarkNotificationReadInput {
+  notificationId: EntityId;
+  customerId:     EntityId;
+}
+
+export interface MarkAllReadInput {
+  customerId: EntityId;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POINTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface GetPointsHistoryInput extends PaginationInput {
+  customerId: EntityId;
+  shopId?:    EntityId;
+}
+
+export interface GetPointsBalanceInput {
+  customerId: EntityId;
+  shopId:     EntityId;
+}
+
+export interface GetPointsBalanceResult {
+  totalPoints: number;
+  tierLevel:   string;
+  ledger:      IPointsLedger[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIER
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface EvaluateTierInput {
+  customerId: EntityId;
+  shopId:     EntityId;
+}
+
+export interface GetTierStatusInput {
+  customerId: EntityId;
+  shopId:     EntityId;
+}
+
+export interface GetTierStatusResult {
+  currentTier:   string;
+  totalPoints:   number;
+  nextTier?:     string;
+  pointsToNext?: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REFERRAL
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface GenerateReferralCodeInput {
+  customerId: EntityId;
+  shopId:     EntityId;
+}
+
+export interface ApplyReferralCodeInput {
+  code:          string;
+  newCustomerId: EntityId;
+}
+
+export interface GetReferralsInput extends PaginationInput {
+  customerId: EntityId;
+  shopId?:    EntityId;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -382,9 +488,9 @@ export interface SubmitExternalAdInput {
 }
 
 export interface AdminApproveAdInput {
-  adminId:  EntityId;
-  adId:     EntityId;
-  reason?:  string;
+  adminId: EntityId;
+  adId:    EntityId;
+  reason?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -461,14 +567,14 @@ export interface AdminPaginationInput extends PaginationInput {
 }
 
 export interface AdminShopListInput extends AdminPaginationInput {
-  status?:  ShopStatus;
-  search?:  string;
+  status?: ShopStatus;
+  search?: string;
 }
 
 export interface ApproveShopInput {
-  adminId:  EntityId;
-  shopId:   EntityId;
-  ip?:      string;
+  adminId: EntityId;
+  shopId:  EntityId;
+  ip?:     string;
 }
 
 export interface SuspendShopInput extends ApproveShopInput {
@@ -505,10 +611,10 @@ export interface RemoveAdInput {
 }
 
 export interface AuditLogsInput extends AdminPaginationInput {
-  action?:      IAuditLog['action'];
-  targetType?:  IAuditLog['targetType'];
-  from?:        Date;
-  to?:          Date;
+  action?:     IAuditLog['action'];
+  targetType?: IAuditLog['targetType'];
+  from?:       Date;
+  to?:         Date;
 }
 
 export interface PlatformStatsResult {
@@ -535,9 +641,9 @@ export interface PaymentIntentResult {
 }
 
 export interface PayHereWebhookInput {
-  payload:     Record<string, unknown>;
-  signature?:  string;
-  ip?:         string;
+  payload:    Record<string, unknown>;
+  signature?: string;
+  ip?:        string;
 }
 
 export interface AdminPaymentsInput extends AdminPaginationInput {

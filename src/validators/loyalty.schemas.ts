@@ -7,39 +7,47 @@ export const loyaltyRuleSchema = Joi.object({
   serviceId: Joi.string().hex().length(24),
   title: Joi.string().trim().min(2).max(160).required(),
   loyaltyType: Joi.string()
-    .valid('visit', 'points', 'spend', 'product', 'hybrid', 'tier', 'referral', 'event')
+    .valid(
+      'visit', 'points', 'spend', 'product',
+      'hybrid', 'tier', 'referral', 'event'
+    )
     .required(),
   config: Joi.object().unknown(true).required(),
   reward: Joi.object({
     type: Joi.string()
-      .valid('free_item', 'percent_discount', 'fixed_discount', 'cashback', 'voucher', 'buy_x_get_y')
+      .valid(
+        'free_item', 'percent_discount', 'fixed_discount',
+        'cashback', 'voucher', 'buy_x_get_y'
+      )
       .required(),
     value: Joi.string().trim().min(1).max(500).required(),
   }).required(),
-  visitsRequired: Joi.number().integer().min(1).max(1000),
+  visitsRequired:    Joi.number().integer().min(1).max(1000),
   rewardDescription: Joi.string().trim().min(2).max(500),
 });
 
 // ─── VISIT MARKING ────────────────────────────────────────────────────────────
 
 export const markVisitSchema = Joi.object({
-  customerEmail: Joi.string().email().lowercase().trim().required(),
-  serviceId: Joi.string().hex().length(24),
-  checkinToken: Joi.string().trim().max(300),
+  customerEmail:    Joi.string().email().lowercase().trim().required(),
+  serviceId:        Joi.string().hex().length(24),
+  checkinToken:     Joi.string().trim().max(300),
   locationVerified: Joi.boolean(),
-  spendAmount: Joi.number().min(0),
-  productsBought: Joi.array().items(
+  customerLat:      Joi.number().min(-90).max(90),    // GPS fraud check
+  customerLng:      Joi.number().min(-180).max(180),  // GPS fraud check
+  spendAmount:      Joi.number().min(0),
+  productsBought:   Joi.array().items(
     Joi.object({
-      productId: Joi.string().trim().max(120),
+      productId:   Joi.string().trim().max(120),
       productName: Joi.string().trim().min(1).max(160).required(),
-      quantity: Joi.number().integer().min(1).required(),
-      points: Joi.number().integer().min(0),
+      quantity:    Joi.number().integer().min(1).required(),
+      points:      Joi.number().integer().min(0),
     })
   ),
 });
 
 export const visitHistoryParamSchema = Joi.object({
-  membershipId: objectId.required(),  // fixed from memId to match route param
+  membershipId: objectId.required(),
 });
 
 export const visitHistoryQuerySchema = Joi.object({
@@ -49,8 +57,8 @@ export const visitHistoryQuerySchema = Joi.object({
 // ─── MEMBERS ──────────────────────────────────────────────────────────────────
 
 export const shopMembersQuerySchema = Joi.object({
+  search: Joi.string().trim().max(100),
   ...paginationQuery,
-  search: Joi.string().trim().max(100),  // search by name or email
 });
 
 // ─── MEMBERSHIP ───────────────────────────────────────────────────────────────
@@ -74,6 +82,6 @@ export const redeemRewardParamSchema = Joi.object({
 });
 
 export const rewardsQuerySchema = Joi.object({
+  status: Joi.string().valid('pending', 'redeemed'),
   ...paginationQuery,
-  status: Joi.string().valid('pending', 'redeemed'),  // filter by status
 });

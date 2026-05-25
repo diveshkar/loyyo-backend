@@ -1,6 +1,8 @@
 import Joi from 'joi';
 import { dateRangeQuery, objectId, paginationQuery } from './common.schemas.js';
 
+// ─── SHOPS ────────────────────────────────────────────────────────────────────
+
 export const adminListShopsQuerySchema = Joi.object({
   status: Joi.string().valid('pending', 'active', 'suspended'),
   search: Joi.string().trim().max(120),
@@ -15,19 +17,26 @@ export const suspendShopSchema = Joi.object({
   reason: Joi.string().trim().min(2).max(1000).required(),
 });
 
+// ─── USERS ────────────────────────────────────────────────────────────────────
+
 export const adminUsersQuerySchema = Joi.object({
   search: Joi.string().trim().max(120),
   ...paginationQuery,
 });
 
+// ─── PAYMENTS ─────────────────────────────────────────────────────────────────
+
 export const adminPaymentsQuerySchema = Joi.object({
   status: Joi.string().valid('pending', 'paid', 'failed', 'refunded'),
-  plan: Joi.string().valid('basic', 'standard', 'premium'),
+  plan:   Joi.string().valid('basic', 'standard', 'premium'),
   ...paginationQuery,
 });
 
+// ─── ADS ──────────────────────────────────────────────────────────────────────
+
 export const adminAdsQuerySchema = Joi.object({
   isActive: Joi.boolean(),
+  adType:   Joi.string().valid('internal', 'boost', 'external'), // added
   ...paginationQuery,
 });
 
@@ -39,12 +48,16 @@ export const removeAdSchema = Joi.object({
   reason: Joi.string().trim().max(1000),
 });
 
+// ─── AUDIT LOGS ───────────────────────────────────────────────────────────────
+
 export const auditLogsQuerySchema = Joi.object({
   action: Joi.string().valid(
     'SHOP_APPROVED',
     'SHOP_SUSPENDED',
     'SHOP_REINSTATED',
     'USER_DEACTIVATED',
+    'AD_APPROVED',     // added
+    'AD_PAUSED',       // added
     'AD_REMOVED',
     'PAYMENT_REFUNDED'
   ),
