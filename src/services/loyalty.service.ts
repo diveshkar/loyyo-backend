@@ -6,22 +6,26 @@ import { Membership, type IMembership } from '../models/Membership.js';
 import { Notification, type INotification } from '../models/Notification.js';
 import { PointsLedger } from '../models/PointsLedger.js';
 import { Shop } from '../models/Shop.js';
-import { User } from '../models/User.js';
+import { IUser, User } from '../models/User.js';
 import { Visit, type IVisit } from '../models/Visit.js';
 import type { MarkedByMethod } from '../models/enums.js';
 import type {
   CreateOrUpdateLoyaltyRuleInput,
   CustomerMembershipInput,
   CustomerMembershipsInput,
+  DeleteRuleInput,
   EntityId,
   GetAllActiveRulesInput,
   GetMyRewardsInput,
+  GetShopMemberByIdInput,
   JoinShopInput,
+  LeaveShopInput,
   MarkPosVisitInput,
   MarkVisitInput,
   MembershipWithShopAndRules,
   PaginatedResult,
   RedeemRewardInput,
+  ShopMemberDetailResult,
   ShopMembersInput,
   VisitHistoryInput,
 } from './types.js';
@@ -807,4 +811,136 @@ export const redeemReward = async (
   await reward.save();
 
   return reward;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LEAVE SHOP
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const leaveShop = async (
+  input: LeaveShopInput
+): Promise<void> => {
+  const customerId = toObjectId(input.customerId);
+  const shopId     = toObjectId(input.shopId);
+
+  const membership = await Membership.findOne({ customerId, shopId });
+  if (!membership)
+    throw new AppError('Membership not found', 404);
+
+  if (!membership.isActive)
+    throw new AppError('You have already left this shop', 409);
+
+  // soft delete — keep all history intact
+  await Membership.findByIdAndUpdate(membership._id, {
+    $set: { isActive: false },
+  });
+
+  // notify customer
+  await Notification.create({
+    customerId,
+    shopId,
+    type:      'visit_marked',
+    title:     'Left shop',
+    message:   'You have successfully left this shop. Your visit history has been preserved.',
+    isRead:    false,
+    emailSent: false,
+  });
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE RULE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const deleteRule = async (
+  input: DeleteRuleInput
+): Promise<ILoyaltyRule> => {
+  const shopId = await resolveShopId(input.ownerId);
+  const ruleId = toObjectId(input.ruleId);
+
+  const rule = await LoyaltyRule.findOne({ _id: ruleId, shopId });
+  if (!rule)
+    throw new AppError('Rule not found', 404);
+
+  if (!rule.isActive)
+    throw new AppError('Rule is already deactivated', 409);
+
+  // soft delete — members on this rule keep their progress
+  rule.isActive = false;
+  await rule.save();
+
+  // mark all active progress entries for this rule as expired
+  await Membership.updateMany(
+    {
+      shopId,
+      isActive:              true,
+      'ruleProgress.ruleId': ruleId,
+      'ruleProgress.status': 'active',
+    },
+    {
+      $set: { 'ruleProgress.$[elem].status': 'expired' },
+    },
+    {
+      arrayFilters: [
+        { 'elem.ruleId': ruleId, 'elem.status': 'active' },
+      ],
+    }
+  );
+
+  return rule;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET SHOP MEMBER BY ID
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getShopMemberById = async (
+  input: GetShopMemberByIdInput
+): Promise<ShopMemberDetailResult> => {
+  const shopId       = await resolveShopId(input.ownerId);
+  const membershipId = toObjectId(input.membershipId);
+
+  // verify membership belongs to this shop
+  const membership = await Membership.findOne({
+    _id:    membershipId,
+    shopId,
+  }).lean();
+
+  if (!membership)
+    throw new AppError('Member not found', 404);
+
+  // customer profile
+  const customer = await User.findById(membership.customerId)
+    .select('name email phone profilePhoto createdAt')
+    .lean();
+
+  if (!customer)
+    throw new AppError('Customer account not found', 404);
+
+  // last 10 visits
+  const visitHistory = await Visit.find({
+    membershipId,
+    shopId,
+  })
+    .sort({ createdAt: -1 })
+    .limit(10)
+    .lean();
+
+  // active rewards — notifications with type reward_earned
+  const activeRewards = await Notification.find({
+    customerId: membership.customerId,
+    shopId,
+    type:       'reward_earned',
+    isRead:     false,
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return {
+    membership:    membership as IMembership,
+    customer:      customer as IUser,
+    visitHistory:  visitHistory as IVisit[],
+    totalPoints:   membership.totalPoints,
+    tierLevel:     membership.tierLevel,
+    activeRewards: activeRewards as INotification[],
+  };
 };

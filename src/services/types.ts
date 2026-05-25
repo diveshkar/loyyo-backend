@@ -111,6 +111,21 @@ export interface LogoutInput {
   refreshToken?: string;
 }
 
+export interface ForgotPasswordInput {
+  email: string;
+}
+
+export interface ResetPasswordInput {
+  token:       string;
+  newPassword: string;
+}
+
+export interface ChangePasswordInput {
+  userId:      EntityId;
+  oldPassword: string;
+  newPassword: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SHOP
 // ─────────────────────────────────────────────────────────────────────────────
@@ -269,6 +284,30 @@ export interface GetRuleHistoryInput {
 export interface GetMyRewardsInput extends PaginationInput {
   customerId: EntityId;
   status?:    'pending' | 'redeemed';
+}
+
+export interface LeaveShopInput {
+  customerId: EntityId;
+  shopId:     EntityId;
+}
+
+export interface DeleteRuleInput {
+  ownerId:  EntityId;
+  ruleId:   EntityId;
+}
+
+export interface GetShopMemberByIdInput {
+  ownerId:      EntityId;
+  membershipId: EntityId;
+}
+
+export interface ShopMemberDetailResult {
+  membership:    IMembership;
+  customer:      IUser;
+  visitHistory:  IVisit[];
+  totalPoints:   number;
+  tierLevel:     string;
+  activeRewards: INotification[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

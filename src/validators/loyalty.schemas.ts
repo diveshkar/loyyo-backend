@@ -85,3 +85,21 @@ export const rewardsQuerySchema = Joi.object({
   status: Joi.string().valid('pending', 'redeemed'),
   ...paginationQuery,
 });
+
+// ─── LEAVE SHOP ───────────────────────────────────────────────────────────────
+
+export const leaveShopParamSchema = Joi.object({
+  shopId: objectId.required(),
+});
+
+// ─── DELETE RULE ──────────────────────────────────────────────────────────────
+
+export const ruleIdParamSchema = Joi.object({
+  ruleId: objectId.required(),
+});
+
+// ─── MEMBER DETAIL ────────────────────────────────────────────────────────────
+
+export const memberIdParamSchema = Joi.object({
+  membershipId: objectId.required(),
+});

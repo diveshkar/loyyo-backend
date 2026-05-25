@@ -1,7 +1,10 @@
 import { BrevoClient } from '@getbrevo/brevo';
 import { env } from '../config/env.js';
 
-// Setup Brevo Transactional Emails Client
+// ─────────────────────────────────────────────────────────────────────────────
+// SETUP
+// ─────────────────────────────────────────────────────────────────────────────
+
 let transactionalEmailsClient: any = null;
 
 const isMockMode =
@@ -21,13 +24,14 @@ if (!isMockMode) {
   console.log('Brevo Email Client running in MOCK (local console log) mode.');
 }
 
-/**
- * Standard interface for sending emails
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// BASE SENDER
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const sendEmail = async (
-  to: string,
-  subject: string,
-  htmlContent: string,
+  to:           string,
+  subject:      string,
+  htmlContent:  string,
   textContext?: string
 ): Promise<boolean> => {
   if (isMockMode || !transactionalEmailsClient) {
@@ -56,10 +60,14 @@ export const sendEmail = async (
   }
 };
 
-/**
- * Business Email: Shop Registered Welcome
- */
-export const sendWelcomeEmail = async (to: string, name: string): Promise<boolean> => {
+// ─────────────────────────────────────────────────────────────────────────────
+// SHOP EMAILS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const sendWelcomeEmail = async (
+  to:   string,
+  name: string
+): Promise<boolean> => {
   const subject = 'Welcome to LOYYO — Sri Lanka\'s Digital Stamp Card Platform';
   const html = `
     <div style="font-family: sans-serif; padding: 20px; color: #333;">
@@ -74,10 +82,10 @@ export const sendWelcomeEmail = async (to: string, name: string): Promise<boolea
   return sendEmail(to, subject, html);
 };
 
-/**
- * Business Email: Shop Approved Notification
- */
-export const sendShopApprovalEmail = async (to: string, shopName: string): Promise<boolean> => {
+export const sendShopApprovalEmail = async (
+  to:       string,
+  shopName: string
+): Promise<boolean> => {
   const subject = 'Congratulations! Your Shop has been Approved on LOYYO 🎉';
   const html = `
     <div style="font-family: sans-serif; padding: 20px; color: #333;">
@@ -85,7 +93,13 @@ export const sendShopApprovalEmail = async (to: string, shopName: string): Promi
       <p>Hello,</p>
       <p>We are excited to let you know that <strong>${shopName}</strong> has been approved by the administrators.</p>
       <p>You can now log in to the Shop Dashboard, set up your stamp card thresholds, launch active offers, and mark customer visits.</p>
-      <p><a href="https://app.loyyo.lk/login" style="background-color: #6C5DD3; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">Log In to Dashboard</a></p>
+      <p>
+        <a href="https://app.loyyo.lk/login"
+           style="background-color: #6C5DD3; color: white; padding: 10px 20px;
+                  text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">
+          Log In to Dashboard
+        </a>
+      </p>
       <br>
       <p>Best regards,</p>
       <p><strong>The LOYYO Team</strong></p>
@@ -94,10 +108,11 @@ export const sendShopApprovalEmail = async (to: string, shopName: string): Promi
   return sendEmail(to, subject, html);
 };
 
-/**
- * Business Email: Shop Suspended Notification
- */
-export const sendShopSuspensionEmail = async (to: string, shopName: string, reason: string): Promise<boolean> => {
+export const sendShopSuspensionEmail = async (
+  to:       string,
+  shopName: string,
+  reason:   string
+): Promise<boolean> => {
   const subject = 'Important: Your LOYYO Shop Profile has been Suspended';
   const html = `
     <div style="font-family: sans-serif; padding: 20px; color: #D32F2F;">
@@ -117,10 +132,15 @@ export const sendShopSuspensionEmail = async (to: string, shopName: string, reas
   return sendEmail(to, subject, html);
 };
 
-/**
- * Business Email: Loyalty Service Rule Updated Notification
- */
-export const sendLoyaltyRuleUpdateEmail = async (to: string, shopName: string, serviceTitle: string): Promise<boolean> => {
+// ─────────────────────────────────────────────────────────────────────────────
+// LOYALTY EMAILS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const sendLoyaltyRuleUpdateEmail = async (
+  to:           string,
+  shopName:     string,
+  serviceTitle: string
+): Promise<boolean> => {
   const subject = `Update regarding your loyalty progress at ${shopName}`;
   const html = `
     <div style="font-family: sans-serif; padding: 20px; color: #333;">
@@ -141,17 +161,14 @@ export const sendLoyaltyRuleUpdateEmail = async (to: string, shopName: string, s
   return sendEmail(to, subject, html);
 };
 
-/**
- * Business Email: Visit Marked Confirmation
- */
 export const sendVisitConfirmationEmail = async (
-  to: string,
-  customerName: string,
-  shopName: string,
-  currentVisits: number,
+  to:             string,
+  customerName:   string,
+  shopName:       string,
+  currentVisits:  number,
   visitsRequired: number
 ): Promise<boolean> => {
-  const subject = `New stamp earned at ${shopName}! 🎯`;
+  const subject         = `New stamp earned at ${shopName}! 🎯`;
   const stampsRemaining = visitsRequired - currentVisits;
   const html = `
     <div style="font-family: sans-serif; padding: 20px; color: #333;">
@@ -162,8 +179,8 @@ export const sendVisitConfirmationEmail = async (
         <h1 style="margin: 0; color: #6C5DD3; font-size: 48px;">${currentVisits} / ${visitsRequired}</h1>
         <p style="color: #666; margin-top: 5px;">Stamps Collected</p>
       </div>
-      <p>${stampsRemaining > 0 
-        ? `Just <strong>${stampsRemaining}</strong> more stamp(s) until your next reward!` 
+      <p>${stampsRemaining > 0
+        ? `Just <strong>${stampsRemaining}</strong> more stamp(s) until your next reward!`
         : 'Congratulations! You have completed your stamp card! A reward has been added to your dashboard!'}
       </p>
       <br>
@@ -174,13 +191,10 @@ export const sendVisitConfirmationEmail = async (
   return sendEmail(to, subject, html);
 };
 
-/**
- * Business Email: Reward Milestone Alert
- */
 export const sendRewardAlertEmail = async (
-  to: string,
-  customerName: string,
-  shopName: string,
+  to:                string,
+  customerName:      string,
+  shopName:          string,
   rewardDescription: string
 ): Promise<boolean> => {
   const subject = `You've earned a reward at ${shopName}! 🎁`;
@@ -192,6 +206,42 @@ export const sendRewardAlertEmail = async (
         <h2 style="margin: 0; color: #E65100;">Earned Reward: ${rewardDescription}</h2>
         <p style="color: #666; margin-top: 5px; font-size: 14px;">Show your reward voucher at the shop counter to redeem.</p>
       </div>
+      <br>
+      <p>Best regards,</p>
+      <p><strong>The LOYYO Team</strong></p>
+    </div>
+  `;
+  return sendEmail(to, subject, html);
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PASSWORD EMAILS
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const sendPasswordResetEmail = async (
+  to:       string,
+  name:     string,
+  rawToken: string
+): Promise<boolean> => {
+  const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${rawToken}`;
+  const subject  = 'Reset your LOYYO password';
+  const html = `
+    <div style="font-family: sans-serif; padding: 20px; color: #333;">
+      <h2 style="color: #6C5DD3;">Reset Your Password</h2>
+      <p>Hi ${name},</p>
+      <p>We received a request to reset your LOYYO password.</p>
+      <p>Click the button below to reset it. This link expires in <strong>15 minutes</strong>.</p>
+      <p>
+        <a href="${resetUrl}"
+           style="background-color: #6C5DD3; color: white; padding: 10px 20px;
+                  text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">
+          Reset Password
+        </a>
+      </p>
+      <p style="color: #999; font-size: 13px; margin-top: 20px;">
+        If you did not request this, you can safely ignore this email.
+        Your password will not be changed.
+      </p>
       <br>
       <p>Best regards,</p>
       <p><strong>The LOYYO Team</strong></p>
