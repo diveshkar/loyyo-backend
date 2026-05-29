@@ -64,11 +64,6 @@ const calculateProductPoints = (
     0
   );
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FIX 5 — event multiplier was multiplying by 0
-// now correctly applies multiplier to base points
-// ─────────────────────────────────────────────────────────────────────────────
-
 const calculateVisitPoints = (
   rule: ILoyaltyRule,
   spendAmount = 0,
@@ -81,8 +76,6 @@ const calculateVisitPoints = (
     getNumber(config.points_per_spend) * spendAmount +
     calculateProductPoints(products);
 
-  // apply event multiplier if this is an event rule
-  // default multiplier is 1 (no change)
   const multiplier =
     rule.loyaltyType === 'event'
       ? getNumber(config.points_multiplier, 1)
@@ -99,26 +92,15 @@ const isRuleCompleted = (
 
   switch (rule.loyaltyType) {
     case 'visit':
-      return (
-        progress.visitCount >=
-        getNumber(config.visit_count_target, Number.MAX_SAFE_INTEGER)
-      );
+      return progress.visitCount >= getNumber(config.visit_count_target, Number.MAX_SAFE_INTEGER);
     case 'points':
-      return (
-        progress.pointsCount >=
-        getNumber(config.points_target, Number.MAX_SAFE_INTEGER)
-      );
+      return progress.pointsCount >= getNumber(config.points_target, Number.MAX_SAFE_INTEGER);
     case 'spend':
-      return (
-        progress.spendCount >=
-        getNumber(config.spend_target, Number.MAX_SAFE_INTEGER)
-      );
+      return progress.spendCount >= getNumber(config.spend_target, Number.MAX_SAFE_INTEGER);
     case 'hybrid':
       return (
-        progress.visitCount >=
-          getNumber(config.visits_needed, Number.MAX_SAFE_INTEGER) &&
-        progress.pointsCount >=
-          getNumber(config.points_needed, Number.MAX_SAFE_INTEGER)
+        progress.visitCount  >= getNumber(config.visits_needed, Number.MAX_SAFE_INTEGER) &&
+        progress.pointsCount >= getNumber(config.points_needed, Number.MAX_SAFE_INTEGER)
       );
     default:
       return false;
@@ -140,10 +122,6 @@ const createRewardNotification = async (
   });
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FIX 1 — token verification
-// ─────────────────────────────────────────────────────────────────────────────
-
 const verifyCheckinToken = async (
   token: string,
   customerId: Types.ObjectId,
@@ -151,53 +129,38 @@ const verifyCheckinToken = async (
 ): Promise<void> => {
   const checkinToken = await CheckinToken.findOne({ token }).lean();
 
-  if (!checkinToken)
-    throw new AppError('Invalid check-in token', 401);
-
-  if (checkinToken.isUsed)
-    throw new AppError('This check-in token has already been used', 401);
-
-  if (new Date() > checkinToken.expiresAt)
-    throw new AppError('Check-in token has expired', 401);
+  if (!checkinToken)         throw new AppError('Invalid check-in token', 401);
+  if (checkinToken.isUsed)   throw new AppError('This check-in token has already been used', 401);
+  if (new Date() > checkinToken.expiresAt) throw new AppError('Check-in token has expired', 401);
 
   if (checkinToken.customerId.toString() !== customerId.toString())
     throw new AppError('Token does not belong to this customer', 401);
 
-  // mark token as used immediately — prevents replay attacks
   await CheckinToken.findByIdAndUpdate(checkinToken._id, {
-    $set: {
-      isUsed:  true,
-      usedAt:  new Date(),
-    },
+    $set: { isUsed: true, usedAt: new Date() },
   });
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FIX 2 — GPS fraud check
-// ─────────────────────────────────────────────────────────────────────────────
 
 const verifyCustomerLocation = async (
   shopId: Types.ObjectId,
   customerLat?: number,
   customerLng?: number
 ): Promise<boolean> => {
-  // if no location provided — skip check
-  // locationVerified will be false on the visit record
   if (customerLat === undefined || customerLng === undefined) return false;
 
-  const shop = await Shop.findById(shopId)
-    .select('location checkinRadius')
-    .lean();
+  const shop = await Shop.findById(shopId).select('location checkinRadius businessType').lean();
   if (!shop) return false;
 
-  const [shopLng, shopLat] = shop.location.coordinates;
+  // home businesses have no physical location — skip GPS check
+  if (shop.businessType === 'home') return false;
+
+  const [shopLng, shopLat] = shop.location!.coordinates;
   const radius = shop.checkinRadius ?? 100;
 
-  // haversine formula — distance in meters between two GPS points
-  const R = 6371000;
+  const R    = 6371000;
   const dLat = ((customerLat - shopLat) * Math.PI) / 180;
   const dLng = ((customerLng - shopLng) * Math.PI) / 180;
-  const a =
+  const a    =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos((shopLat * Math.PI) / 180) *
       Math.cos((customerLat * Math.PI) / 180) *
@@ -213,10 +176,6 @@ const verifyCustomerLocation = async (
 
   return true;
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FIX 3 — daily visit limit
-// ─────────────────────────────────────────────────────────────────────────────
 
 const checkDailyVisitLimit = async (
   customerId: Types.ObjectId,
@@ -234,22 +193,13 @@ const checkDailyVisitLimit = async (
     createdAt: { $gte: startOfDay, $lte: endOfDay },
   }).lean();
 
-  if (existing)
-    throw new AppError(
-      'This customer has already been checked in today',
-      409
-    );
+  if (existing) throw new AppError('This customer has already been checked in today', 409);
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FIX 4 — tier upgrade check
-// ─────────────────────────────────────────────────────────────────────────────
 
 const evaluateTierUpgrade = async (
   membership: IMembership,
   updatedPoints: number
 ): Promise<void> => {
-  // get tier rule for this shop if it exists
   const tierRule = await LoyaltyRule.findOne({
     shopId:      membership.shopId,
     loyaltyType: 'tier',
@@ -258,27 +208,19 @@ const evaluateTierUpgrade = async (
 
   if (!tierRule || !tierRule.config?.tiers?.length) return;
 
-  // sort tiers by min_points descending — highest tier first
   const sortedTiers = [...tierRule.config.tiers].sort(
     (a, b) => b.min_points - a.min_points
   );
 
-  // find the highest tier the customer qualifies for
-  const newTier = sortedTiers.find(
-    (tier) => updatedPoints >= tier.min_points
-  );
-
+  const newTier = sortedTiers.find((tier) => updatedPoints >= tier.min_points);
   if (!newTier) return;
 
-  const currentTier = membership.tierLevel;
-  if (newTier.name.toLowerCase() === currentTier) return;
+  if (newTier.name.toLowerCase() === membership.tierLevel) return;
 
-  // upgrade the tier
   await Membership.findByIdAndUpdate(membership._id, {
     $set: { tierLevel: newTier.name.toLowerCase() },
   });
 
-  // notify the customer
   await Notification.create({
     customerId: membership.customerId,
     shopId:     membership.shopId,
@@ -291,7 +233,7 @@ const evaluateTierUpgrade = async (
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CORE VISIT PROCESSOR — all 5 fixes applied
+// CORE VISIT PROCESSOR
 // ─────────────────────────────────────────────────────────────────────────────
 
 const processVisit = async (
@@ -317,24 +259,20 @@ const processVisit = async (
   const spendAmount    = input.spendAmount ?? 0;
   const productsBought = input.productsBought ?? [];
 
-  // FIX 3 — daily visit limit check
   await checkDailyVisitLimit(customerId, shopId);
 
-  // FIX 1 — verify token if qr_scan or barcode_scan
   if (
     input.checkinToken &&
-    (input.markedByMethod === 'qr_scan' ||
-      input.markedByMethod === 'barcode_scan')
+    (input.markedByMethod === 'qr_scan' || input.markedByMethod === 'barcode_scan')
   ) {
     await verifyCheckinToken(input.checkinToken, customerId, shopId);
   }
 
-  // FIX 2 — GPS fraud check
   const locationVerified = await verifyCustomerLocation(
     shopId,
     input.customerLat,
     input.customerLng
-  ).catch(() => false);  // if GPS check fails — allow visit but mark unverified
+  ).catch(() => false);
 
   const rewardsEarned: INotification[] = [];
   let totalPointsEarned = 0;
@@ -371,12 +309,7 @@ const processVisit = async (
     progress.visitCount += 1;
     progress.spendCount += spendAmount;
 
-    // FIX 5 — event multiplier now applied correctly
-    const pointsFromRule = calculateVisitPoints(
-      rule,
-      spendAmount,
-      productsBought
-    );
+    const pointsFromRule = calculateVisitPoints(rule, spendAmount, productsBought);
     progress.pointsCount  += pointsFromRule;
     totalPointsEarned     += pointsFromRule;
 
@@ -406,55 +339,53 @@ const processVisit = async (
         lastVisitAt:  new Date(),
       },
       $inc: {
-        totalVisits:  1,
-        totalPoints:  totalPointsEarned,
-        totalSpend:   spendAmount,
+        totalVisits: 1,
+        totalPoints: totalPointsEarned,
+        totalSpend:  spendAmount,
       },
     },
     { new: true, runValidators: true }
   );
 
-  if (!updatedMembership)
-    throw new AppError('Membership update failed', 500);
+  if (!updatedMembership) throw new AppError('Membership update failed', 500);
 
   if (totalPointsEarned > 0) {
     await PointsLedger.create({
       customerId,
       shopId,
-      serviceId:   input.serviceId ? toObjectId(input.serviceId) : undefined,
-      visitRef:    visit._id,
-      action:      'earn',
+      serviceId:    input.serviceId ? toObjectId(input.serviceId) : undefined,
+      visitRef:     visit._id,
+      action:       'earn',
       source:
         spendAmount > 0
           ? 'spend'
           : productsBought.length
           ? 'product'
           : 'visit',
-      points:      totalPointsEarned,
+      points:       totalPointsEarned,
       spendAmount,
       balanceAfter: updatedMembership.totalPoints,
-      note:        'Visit points earned',
+      note:         'Visit points earned',
     });
   }
 
-  // FIX 4 — tier upgrade check after points updated
   await evaluateTierUpgrade(updatedMembership, updatedMembership.totalPoints);
 
   await Notification.create({
     customerId,
     shopId,
-    type:    'visit_marked',
-    title:   'Visit marked',
-    message: 'Your loyalty visit was recorded.',
-    isRead:  false,
+    type:      'visit_marked',
+    title:     'Visit marked',
+    message:   'Your loyalty visit was recorded.',
+    isRead:    false,
     emailSent: false,
   });
 
   return {
-    membership:    updatedMembership,
+    membership:   updatedMembership,
     visit,
     rewardsEarned,
-    pointsEarned:  totalPointsEarned,
+    pointsEarned: totalPointsEarned,
   };
 };
 
@@ -465,7 +396,19 @@ const processVisit = async (
 export const createOrUpdateRuleForOwner = async (
   input: CreateOrUpdateLoyaltyRuleInput
 ): Promise<ILoyaltyRule> => {
-  const shopId    = await resolveShopId(input.ownerId);
+  const shopId = await resolveShopId(input.ownerId);
+
+  // micro/home plan guard — only visit loyalty allowed
+  const shop = await Shop.findById(shopId).select('plan businessType').lean();
+  if (shop && (shop.plan === 'micro' || shop.businessType === 'home')) {
+    if (input.loyaltyType !== 'visit') {
+      throw new AppError(
+        'Home businesses on the micro plan can only use visit-based loyalty rules',
+        403
+      );
+    }
+  }
+
   const serviceId = input.serviceId ? toObjectId(input.serviceId) : undefined;
   const config    = { ...input.config };
   const reward    = input.reward ?? {
@@ -525,18 +468,14 @@ export const getAllActiveRules = async (
   input: GetAllActiveRulesInput
 ): Promise<ILoyaltyRule[]> => {
   const shopId = await resolveShopId(input.ownerId);
-  return LoyaltyRule.find({ shopId, isActive: true })
-    .sort({ createdAt: -1 })
-    .lean();
+  return LoyaltyRule.find({ shopId, isActive: true }).sort({ createdAt: -1 }).lean();
 };
 
 export const getRuleHistory = async (
   input: GetAllActiveRulesInput
 ): Promise<ILoyaltyRule[]> => {
   const shopId = await resolveShopId(input.ownerId);
-  return LoyaltyRule.find({ shopId })
-    .sort({ createdAt: -1, version: -1 })
-    .lean();
+  return LoyaltyRule.find({ shopId }).sort({ createdAt: -1, version: -1 }).lean();
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -552,31 +491,23 @@ export const recordVisitForOwner = async (
   pointsEarned:  number;
 }> => {
   const shopId   = await resolveShopId(input.ownerId);
-  const customer = await User.findOne({
-    email: input.customerEmail.toLowerCase().trim(),
-  })
+  const customer = await User.findOne({ email: input.customerEmail.toLowerCase().trim() })
     .select('_id')
     .lean();
-  if (!customer)
-    throw new AppError('Customer not found with this email', 404);
+  if (!customer) throw new AppError('Customer not found with this email', 404);
 
-  const membership = await Membership.findOne({
-    customerId: customer._id,
-    shopId,
-  });
-  if (!membership)
-    throw new AppError('This customer has not joined your shop', 404);
-  if (!membership.isActive)
-    throw new AppError('This membership is inactive', 403);
+  const membership = await Membership.findOne({ customerId: customer._id, shopId });
+  if (!membership)          throw new AppError('This customer has not joined your shop', 404);
+  if (!membership.isActive) throw new AppError('This membership is inactive', 403);
 
   return processVisit(membership, {
-    serviceId:       input.serviceId,
-    markedByMethod:  input.markedByMethod ?? 'manual',
-    checkinToken:    input.checkinToken,
-    customerLat:     input.customerLat,
-    customerLng:     input.customerLng,
-    spendAmount:     input.spendAmount,
-    productsBought:  input.productsBought,
+    serviceId:      input.serviceId,
+    markedByMethod: input.markedByMethod ?? 'manual',
+    checkinToken:   input.checkinToken,
+    customerLat:    input.customerLat,
+    customerLng:    input.customerLng,
+    spendAmount:    input.spendAmount,
+    productsBought: input.productsBought,
   });
 };
 
@@ -593,17 +524,12 @@ export const recordPosVisit = async (
   if (!shop)                    throw new AppError('Shop not found', 404);
   if (shop.status !== 'active') throw new AppError('Shop is not active', 403);
 
-  const customer = await User.findOne({
-    email: input.customerEmail.toLowerCase().trim(),
-  })
+  const customer = await User.findOne({ email: input.customerEmail.toLowerCase().trim() })
     .select('_id')
     .lean();
   if (!customer) throw new AppError('Customer not found', 404);
 
-  const membership = await Membership.findOne({
-    customerId: customer._id,
-    shopId,
-  });
+  const membership = await Membership.findOne({ customerId: customer._id, shopId });
   if (!membership)          throw new AppError('Customer has not joined this shop', 404);
   if (!membership.isActive) throw new AppError('Membership is inactive', 403);
 
@@ -648,8 +574,8 @@ export const getVisitHistory = async (
 export const getShopMembers = async (
   input: ShopMembersInput
 ): Promise<PaginatedResult<IMembership>> => {
-  const page  = input.page ?? 1;
-  const limit = input.limit ?? 20;
+  const page   = input.page ?? 1;
+  const limit  = input.limit ?? 20;
   const shopId = await resolveShopId(input.ownerId);
 
   let customerIds: Types.ObjectId[] | undefined;
@@ -660,9 +586,7 @@ export const getShopMembers = async (
         { email: { $regex: input.search, $options: 'i' } },
         { phone: { $regex: input.search, $options: 'i' } },
       ],
-    })
-      .select('_id')
-      .lean();
+    }).select('_id').lean();
     customerIds = customers.map((c) => c._id as Types.ObjectId);
   }
 
@@ -672,10 +596,7 @@ export const getShopMembers = async (
   const [items, total] = await Promise.all([
     Membership.find(filter)
       .populate('customerId', 'name email phone profilePhoto')
-      .populate(
-        'ruleProgress.ruleId',
-        'title loyaltyType config reward version serviceId'
-      )
+      .populate('ruleProgress.ruleId', 'title loyaltyType config reward version serviceId')
       .sort({ lastVisitAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
@@ -690,15 +611,19 @@ export const getShopMembers = async (
 // MEMBERSHIP
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const joinShop = async (
-  input: JoinShopInput
-): Promise<IMembership> => {
+export const joinShop = async (input: JoinShopInput): Promise<IMembership> => {
   const customerId = toObjectId(input.customerId);
   const shopId     = toObjectId(input.shopId);
 
-  const shop = await Shop.findById(shopId).select('status').lean();
+  const shop = await Shop.findById(shopId).select('status plan').lean();
   if (!shop)                    throw new AppError('Shop not found', 404);
   if (shop.status !== 'active') throw new AppError('This shop is not active', 403);
+
+  // micro plan — 50 member cap
+  if (shop.plan === 'micro') {
+    const memberCount = await Membership.countDocuments({ shopId, isActive: true });
+    if (memberCount >= 50) throw new AppError('This shop has reached its member limit', 403);
+  }
 
   const existing = await Membership.findOne({ customerId, shopId }).lean();
   if (existing) throw new AppError('You are already a member of this shop', 409);
@@ -734,7 +659,7 @@ export const getMyMemberships = async (
 
   const [items, total] = await Promise.all([
     Membership.find(filter)
-      .populate('shopId', 'name type address locationLng locationLat logoUrl profilePhoto')
+      .populate('shopId', 'name type businessType address logoUrl profilePhoto')
       .populate('ruleProgress.ruleId', 'title loyaltyType config reward version serviceId')
       .sort({ lastVisitAt: -1 })
       .skip((page - 1) * limit)
@@ -743,12 +668,7 @@ export const getMyMemberships = async (
     Membership.countDocuments(filter),
   ]);
 
-  return paginate(
-    items as unknown as MembershipWithShopAndRules[],
-    total,
-    page,
-    limit
-  );
+  return paginate(items as unknown as MembershipWithShopAndRules[], total, page, limit);
 };
 
 export const getMembershipCard = async (
@@ -758,7 +678,7 @@ export const getMembershipCard = async (
     customerId: toObjectId(input.customerId),
     shopId:     toObjectId(input.shopId),
   })
-    .populate('shopId', 'name type address locationLng locationLat logoUrl profilePhoto')
+    .populate('shopId', 'name type businessType address logoUrl profilePhoto')
     .populate('ruleProgress.ruleId', 'title loyaltyType config reward version serviceId')
     .lean();
 
@@ -793,21 +713,19 @@ export const getMyRewards = async (
   return paginate(items as INotification[], total, page, limit);
 };
 
-export const redeemReward = async (
-  input: RedeemRewardInput
-): Promise<INotification> => {
+export const redeemReward = async (input: RedeemRewardInput): Promise<INotification> => {
   const shopId = await resolveShopId(input.ownerId);
   const reward = await Notification.findOne({
-    _id:  toObjectId(input.rewardId),
+    _id:   toObjectId(input.rewardId),
     shopId,
-    type: 'reward_earned',
+    type:  'reward_earned',
   });
 
   if (!reward) throw new AppError('Reward notification not found', 404);
 
-  reward.type    = 'reward_claimed';
-  reward.isRead  = true;
-  reward.title   = `Claimed: ${reward.title}`;
+  reward.type   = 'reward_claimed';
+  reward.isRead = true;
+  reward.title  = `Claimed: ${reward.title}`;
   await reward.save();
 
   return reward;
@@ -817,25 +735,16 @@ export const redeemReward = async (
 // LEAVE SHOP
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const leaveShop = async (
-  input: LeaveShopInput
-): Promise<void> => {
+export const leaveShop = async (input: LeaveShopInput): Promise<void> => {
   const customerId = toObjectId(input.customerId);
   const shopId     = toObjectId(input.shopId);
 
   const membership = await Membership.findOne({ customerId, shopId });
-  if (!membership)
-    throw new AppError('Membership not found', 404);
+  if (!membership)          throw new AppError('Membership not found', 404);
+  if (!membership.isActive) throw new AppError('You have already left this shop', 409);
 
-  if (!membership.isActive)
-    throw new AppError('You have already left this shop', 409);
+  await Membership.findByIdAndUpdate(membership._id, { $set: { isActive: false } });
 
-  // soft delete — keep all history intact
-  await Membership.findByIdAndUpdate(membership._id, {
-    $set: { isActive: false },
-  });
-
-  // notify customer
   await Notification.create({
     customerId,
     shopId,
@@ -851,24 +760,17 @@ export const leaveShop = async (
 // DELETE RULE
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const deleteRule = async (
-  input: DeleteRuleInput
-): Promise<ILoyaltyRule> => {
+export const deleteRule = async (input: DeleteRuleInput): Promise<ILoyaltyRule> => {
   const shopId = await resolveShopId(input.ownerId);
   const ruleId = toObjectId(input.ruleId);
 
   const rule = await LoyaltyRule.findOne({ _id: ruleId, shopId });
-  if (!rule)
-    throw new AppError('Rule not found', 404);
+  if (!rule)           throw new AppError('Rule not found', 404);
+  if (!rule.isActive)  throw new AppError('Rule is already deactivated', 409);
 
-  if (!rule.isActive)
-    throw new AppError('Rule is already deactivated', 409);
-
-  // soft delete — members on this rule keep their progress
   rule.isActive = false;
   await rule.save();
 
-  // mark all active progress entries for this rule as expired
   await Membership.updateMany(
     {
       shopId,
@@ -876,14 +778,8 @@ export const deleteRule = async (
       'ruleProgress.ruleId': ruleId,
       'ruleProgress.status': 'active',
     },
-    {
-      $set: { 'ruleProgress.$[elem].status': 'expired' },
-    },
-    {
-      arrayFilters: [
-        { 'elem.ruleId': ruleId, 'elem.status': 'active' },
-      ],
-    }
+    { $set: { 'ruleProgress.$[elem].status': 'expired' } },
+    { arrayFilters: [{ 'elem.ruleId': ruleId, 'elem.status': 'active' }] }
   );
 
   return rule;
@@ -899,45 +795,27 @@ export const getShopMemberById = async (
   const shopId       = await resolveShopId(input.ownerId);
   const membershipId = toObjectId(input.membershipId);
 
-  // verify membership belongs to this shop
-  const membership = await Membership.findOne({
-    _id:    membershipId,
-    shopId,
-  }).lean();
+  const membership = await Membership.findOne({ _id: membershipId, shopId }).lean();
+  if (!membership) throw new AppError('Member not found', 404);
 
-  if (!membership)
-    throw new AppError('Member not found', 404);
-
-  // customer profile
   const customer = await User.findById(membership.customerId)
     .select('name email phone profilePhoto createdAt')
     .lean();
+  if (!customer) throw new AppError('Customer account not found', 404);
 
-  if (!customer)
-    throw new AppError('Customer account not found', 404);
-
-  // last 10 visits
-  const visitHistory = await Visit.find({
-    membershipId,
-    shopId,
-  })
-    .sort({ createdAt: -1 })
-    .limit(10)
-    .lean();
-
-  // active rewards — notifications with type reward_earned
-  const activeRewards = await Notification.find({
-    customerId: membership.customerId,
-    shopId,
-    type:       'reward_earned',
-    isRead:     false,
-  })
-    .sort({ createdAt: -1 })
-    .lean();
+  const [visitHistory, activeRewards] = await Promise.all([
+    Visit.find({ membershipId, shopId }).sort({ createdAt: -1 }).limit(10).lean(),
+    Notification.find({
+      customerId: membership.customerId,
+      shopId,
+      type:       'reward_earned',
+      isRead:     false,
+    }).sort({ createdAt: -1 }).lean(),
+  ]);
 
   return {
     membership:    membership as IMembership,
-    customer:      customer as IUser,
+    customer:      customer   as IUser,
     visitHistory:  visitHistory as IVisit[],
     totalPoints:   membership.totalPoints,
     tierLevel:     membership.tierLevel,

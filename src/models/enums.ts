@@ -1,6 +1,9 @@
 export const USER_ROLES = ['customer', 'shop', 'admin'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
+export const BUSINESS_TYPES = ['physical', 'home'] as const;
+export type BusinessType = (typeof BUSINESS_TYPES)[number];
+
 export const SHOP_TYPES = [
   'tea_shop',
   'salon',
@@ -12,11 +15,17 @@ export const SHOP_TYPES = [
   'pharmacy',
   'grocery',
   'bakery',
+  'home_bakery',
+  'home_kitchen',
+  'home_salon',
+  'home_tuition',
+  'handmade',
+  'reseller',
   'other',
 ] as const;
 export type ShopType = (typeof SHOP_TYPES)[number];
 
-export const SHOP_PLANS = ['free', 'basic', 'standard', 'premium'] as const;
+export const SHOP_PLANS = ['micro', 'free', 'basic', 'standard', 'premium'] as const;
 export type ShopPlan = (typeof SHOP_PLANS)[number];
 
 export const SHOP_STATUSES = ['pending', 'active', 'suspended'] as const;
@@ -56,7 +65,7 @@ export type TierLevel = (typeof TIER_LEVELS)[number];
 export const RULE_PROGRESS_STATUSES = ['active', 'completed', 'expired'] as const;
 export type RuleProgressStatus = (typeof RULE_PROGRESS_STATUSES)[number];
 
-export const MARKED_BY_METHODS = ['qr_scan', 'barcode_scan', 'kiosk', 'plugin', 'manual'] as const;
+export const MARKED_BY_METHODS = ['qr_scan', 'barcode_scan', 'kiosk', 'plugin', 'manual', 'order_code'] as const;
 export type MarkedByMethod = (typeof MARKED_BY_METHODS)[number];
 
 export const USED_BY_DEVICES = ['mobile_camera', 'usb_scanner', 'kiosk', 'plugin'] as const;
@@ -86,6 +95,7 @@ export const NOTIFICATION_TYPES = [
   'event',
   'reward_claimed',
   'points_expired',
+  'order_code',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 

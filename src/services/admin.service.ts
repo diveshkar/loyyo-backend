@@ -9,6 +9,8 @@ import { Visit } from '../models/Visit.js';
 import { AppError } from '../middleware/errorHandler.js';
 import type {
   AdminAdsInput,
+  AdminApproveAdInput,
+  AdminPauseAdInput,
   AdminPaymentsInput,
   AdminShopListInput,
   AdminUsersInput,
@@ -39,10 +41,10 @@ const audit = async (
   ip?: string
 ): Promise<void> => {
   await AuditLog.create({
-    adminId: new Types.ObjectId(adminId.toString()),
+    adminId:    new Types.ObjectId(adminId.toString()),
     action,
     targetType,
-    targetId: new Types.ObjectId(targetId.toString()),
+    targetId:   new Types.ObjectId(targetId.toString()),
     before,
     after,
     reason,
@@ -56,11 +58,14 @@ export const getAdminShops = async (
   const page = input.page ?? 1;
   const limit = input.limit ?? 20;
   const filter: Record<string, unknown> = {};
+
   if (input.status) filter.status = input.status;
+  if ((input as any).businessType) filter.businessType = (input as any).businessType;
   if (input.search) {
     filter.$or = [
-      { name: { $regex: input.search, $options: 'i' } },
-      { address: { $regex: input.search, $options: 'i' } },
+      { name:     { $regex: input.search, $options: 'i' } },
+      { address:  { $regex: input.search, $options: 'i' } },
+      { category: { $regex: input.search, $options: 'i' } },
     ];
   }
 
@@ -113,7 +118,7 @@ export const getAdminUsers = async (input: AdminUsersInput): Promise<PaginatedRe
   const filter: Record<string, unknown> = {};
   if (input.search) {
     filter.$or = [
-      { name: { $regex: input.search, $options: 'i' } },
+      { name:  { $regex: input.search, $options: 'i' } },
       { email: { $regex: input.search, $options: 'i' } },
       { phone: { $regex: input.search, $options: 'i' } },
     ];
@@ -134,12 +139,18 @@ export const getAdminPayments = async (
   const limit = input.limit ?? 20;
   const filter: Record<string, unknown> = {};
   if (input.status) filter.status = input.status;
-  if (input.plan) filter.plan = input.plan;
+  if (input.plan)   filter.plan   = input.plan;
 
   const [items, total] = await Promise.all([
-    Payment.find(filter).populate('shopId', 'name type').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    Payment.find(filter)
+      .populate('shopId', 'name type businessType')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
     Payment.countDocuments(filter),
   ]);
+
   return paginate(items as IPayment[], total, page, limit);
 };
 
@@ -151,10 +162,36 @@ export const getAdminAds = async (input: AdminAdsInput): Promise<PaginatedResult
   if (input.adType) filter.adType = input.adType;
 
   const [items, total] = await Promise.all([
-    Ad.find(filter).populate('shopId', 'name type').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    Ad.find(filter)
+      .populate('shopId', 'name type businessType')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
     Ad.countDocuments(filter),
   ]);
+
   return paginate(items as IAd[], total, page, limit);
+};
+
+export const approveAd = async (input: AdminApproveAdInput): Promise<IAd> => {
+  const ad = await Ad.findById(input.adId);
+  if (!ad) throw new AppError('Ad not found', 404);
+  const before = { isActive: ad.isActive };
+  ad.isActive = true;
+  await ad.save();
+  await audit(input.adminId, 'AD_APPROVED', 'ad', ad._id as Types.ObjectId, before, { isActive: true }, input.reason ?? 'Ad approved');
+  return ad;
+};
+
+export const pauseAd = async (input: AdminPauseAdInput): Promise<IAd> => {
+  const ad = await Ad.findById(input.adId);
+  if (!ad) throw new AppError('Ad not found', 404);
+  const before = { isActive: ad.isActive };
+  ad.isActive = false;
+  await ad.save();
+  await audit(input.adminId, 'AD_PAUSED', 'ad', ad._id as Types.ObjectId, before, { isActive: false }, input.reason);
+  return ad;
 };
 
 export const removeAd = async (input: RemoveAdInput): Promise<IAd> => {
@@ -173,25 +210,32 @@ export const getAuditLogs = async (
   const page = input.page ?? 1;
   const limit = input.limit ?? 20;
   const filter: Record<string, unknown> = {};
-  if (input.action) filter.action = input.action;
+  if (input.action)     filter.action     = input.action;
   if (input.targetType) filter.targetType = input.targetType;
   if (input.from || input.to) {
     filter.createdAt = {
       ...(input.from ? { $gte: input.from } : {}),
-      ...(input.to ? { $lte: input.to } : {}),
+      ...(input.to   ? { $lte: input.to   } : {}),
     };
   }
 
   const [items, total] = await Promise.all([
-    AuditLog.find(filter).populate('adminId', 'name email').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    AuditLog.find(filter)
+      .populate('adminId', 'name email')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
     AuditLog.countDocuments(filter),
   ]);
+
   return paginate(items as IAuditLog[], total, page, limit);
 };
 
 export const getPlatformStats = async (): Promise<PlatformStatsResult> => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
   const [totalShops, totalUsers, visitsToday, paidPayments, activeAds] = await Promise.all([
     Shop.countDocuments(),
     User.countDocuments(),
@@ -205,7 +249,7 @@ export const getPlatformStats = async (): Promise<PlatformStatsResult> => {
     totalShops,
     totalUsers,
     visitsToday,
-    revenue: paidPayments.reduce((sum, payment) => sum + payment.amount, 0),
+    revenue: paidPayments.reduce((sum, p) => sum + p.amount, 0),
     activeAds,
   };
 };

@@ -41,3 +41,21 @@ export const getShopMembers = asyncHandler(async (req, res) => {
   });
   sendSuccess(res, result);
 });
+
+export const leaveShop = asyncHandler(async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  await memberService.leaveShop({
+    customerId: authReq.user!._id,
+    shopId: String(req.params.shopId),
+  });
+  sendSuccess(res, { left: true });
+});
+
+export const getShopMemberById = asyncHandler(async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const result = await memberService.getShopMemberById({
+    ownerId:      authReq.user!._id,
+    membershipId: String(req.params.membershipId),
+  });
+  sendSuccess(res, result);
+});

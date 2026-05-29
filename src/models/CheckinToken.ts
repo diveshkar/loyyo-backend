@@ -1,10 +1,14 @@
 import { Schema, model, Document, Types } from 'mongoose';
 import { USED_BY_DEVICES, type UsedByDevice } from './enums.js';
 
+export type TokenType = 'qr' | 'barcode' | 'order_code';
+
 export interface ICheckinToken extends Document {
   customerId: Types.ObjectId;
   shopId?: Types.ObjectId;
   token: string;
+  tokenType: TokenType;
+  orderCode?: string;
   qrFormat?: string;
   barcodeFormat?: string;
   expiresAt: Date;
@@ -33,6 +37,19 @@ const CheckinTokenSchema = new Schema<ICheckinToken>(
       required: [true, 'Check-in token is required'],
       trim: true,
       index: true,
+    },
+    tokenType: {
+      type: String,
+      enum: ['qr', 'barcode', 'order_code'],
+      required: [true, 'Token type is required'],
+      default: 'qr',
+      index: true,
+    },
+    orderCode: {
+      type: String,
+      trim: true,
+      index: true,
+      sparse: true,
     },
     qrFormat: {
       type: String,

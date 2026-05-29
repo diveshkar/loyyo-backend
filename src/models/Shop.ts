@@ -1,13 +1,18 @@
 import { Schema, model, Document, Types } from 'mongoose';
-import { SHOP_PLANS, SHOP_STATUSES, SHOP_TYPES, type ShopPlan, type ShopStatus, type ShopType } from './enums.js';
+import {
+  SHOP_PLANS, SHOP_STATUSES, SHOP_TYPES, BUSINESS_TYPES,
+  type ShopPlan, type ShopStatus, type ShopType, type BusinessType,
+} from './enums.js';
 
 export interface IShop extends Document {
   ownerId: Types.ObjectId;
   name: string;
   type: ShopType;
-  address: string;
-  locationLng: number;
-  locationLat: number;
+  businessType: BusinessType;
+  isAddressPublic: boolean;
+  address?: string;
+  locationLng?: number;
+  locationLat?: number;
   plan: ShopPlan;
   status: ShopStatus;
   apiKey?: string;
@@ -16,7 +21,7 @@ export interface IShop extends Document {
   description?: string;
   category?: string;
   logoUrl?: string;
-  location: {
+  location?: {
     type: 'Point';
     coordinates: [number, number];
   };
@@ -45,20 +50,28 @@ const ShopSchema = new Schema<IShop>(
       default: 'other',
       index: true,
     },
+    businessType: {
+      type: String,
+      enum: BUSINESS_TYPES,
+      required: [true, 'Business type is required'],
+      default: 'physical',
+      index: true,
+    },
+    isAddressPublic: {
+      type: Boolean,
+      default: true,
+    },
     address: {
       type: String,
-      required: [true, 'Address is required'],
       trim: true,
     },
     locationLng: {
       type: Number,
-      required: [true, 'Location longitude is required'],
       min: -180,
       max: 180,
     },
     locationLat: {
       type: Number,
-      required: [true, 'Location latitude is required'],
       min: -90,
       max: 90,
     },
@@ -67,11 +80,9 @@ const ShopSchema = new Schema<IShop>(
         type: String,
         enum: ['Point'],
         default: 'Point',
-        required: true,
       },
       coordinates: {
         type: [Number],
-        required: true,
         validate: {
           validator: (coords: number[]) => coords.length === 2,
           message: 'Coordinates must be [longitude, latitude]',
@@ -125,6 +136,9 @@ const ShopSchema = new Schema<IShop>(
 );
 
 ShopSchema.pre('validate', function () {
+  // home businesses — skip location sync entirely
+  if (this.businessType === 'home') return;
+
   if (this.location?.coordinates?.length === 2) {
     this.locationLng ??= this.location.coordinates[0];
     this.locationLat ??= this.location.coordinates[1];
@@ -139,7 +153,6 @@ ShopSchema.pre('validate', function () {
     const normalized = this.category.toLowerCase().replace(/\s+/g, '_');
     this.type = SHOP_TYPES.includes(normalized as ShopType) ? (normalized as ShopType) : 'other';
   }
-
 });
 
 ShopSchema.index({ location: '2dsphere' });

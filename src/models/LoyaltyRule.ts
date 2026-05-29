@@ -16,11 +16,11 @@ import {
 
 export interface ITimeWindow {
   type:   TimeWindowType;
-  value?: number;          // e.g. 3 for every 3 months
+  value?: number;
 }
 
 export interface ITierLevel {
-  name:         string;    // Silver | Gold | Platinum
+  name:         string;
   min_points:   number;
   reward_type:  RewardType;
   reward_value: string;
@@ -38,11 +38,11 @@ export interface ILoyaltyConfig {
 
   // --- POINTS BASED ---
   points_per_visit?:   number;
-  points_per_spend?:   number;    // points per LKR spent
-  points_target?:      number;    // points needed for reward
+  points_per_spend?:   number;
+  points_target?:      number;
 
   // --- SPEND BASED ---
-  spend_target?:       number;    // LKR target
+  spend_target?:       number;
 
   // --- PRODUCT BASED ---
   product_points?:     IProductPoints[];
@@ -60,13 +60,13 @@ export interface ILoyaltyConfig {
 
   // --- EVENT / SEASONAL ---
   event_name?:         string;
-  points_multiplier?:  number;    // 2 = double points
+  points_multiplier?:  number;
   event_start?:        Date;
   event_end?:          Date;
 
-  // --- UNIVERSAL — works with any type ---
+  // --- UNIVERSAL ---
   time_window?:        ITimeWindow;
-  expire_action?:      ExpireAction;  // reset | carry_over | freeze
+  expire_action?:      ExpireAction;
 }
 
 export interface ILoyaltyRewardConfig {
@@ -79,21 +79,27 @@ export interface ILoyaltyRewardConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ILoyaltyRule extends Document {
-  shopId:            Types.ObjectId;
-  serviceId?:        Types.ObjectId;
-  title:             string;
-  loyaltyType:       LoyaltyType;
-  config:            ILoyaltyConfig;    // typed now — not any
-  reward:            ILoyaltyRewardConfig;
-  version:           number;
-  isActive:          boolean;
-  createdAt:         Date;
-  updatedAt:         Date;
+  shopId:             Types.ObjectId;
+  serviceId?:         Types.ObjectId;
+  title:              string;
+  loyaltyType:        LoyaltyType;
+  config:             ILoyaltyConfig;
+  reward:             ILoyaltyRewardConfig;
+  version:            number;
+  isActive:           boolean;
+  createdAt:          Date;
+  updatedAt:          Date;
 
-  // backward compat — keep for old service calls
-  visitsRequired?:   number;
+  // backward compat
+  visitsRequired?:    number;
   rewardDescription?: string;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MICRO PLAN ALLOWED LOYALTY TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MICRO_ALLOWED_TYPES: LoyaltyType[] = ['visit'];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCHEMA
@@ -172,11 +178,20 @@ const LoyaltyRuleSchema = new Schema<ILoyaltyRule>(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PRE VALIDATE — sync backward compat fields
+// PRE VALIDATE
 // ─────────────────────────────────────────────────────────────────────────────
 
-LoyaltyRuleSchema.pre('validate', function () {
+LoyaltyRuleSchema.pre('validate', async function () {
   this.config ??= {};
+
+  // micro plan guard — only visit loyalty allowed
+  const Shop = (await import('./Shop.js')).Shop;
+  const shop = await Shop.findById(this.shopId).select('plan businessType').lean();
+  if (shop && (shop.plan === 'micro' || shop.businessType === 'home')) {
+    if (!MICRO_ALLOWED_TYPES.includes(this.loyaltyType)) {
+      throw new Error('Home businesses on the micro plan can only use visit-based loyalty rules');
+    }
+  }
 
   // visit backward compat
   if (this.loyaltyType === 'visit' && this.visitsRequired && !this.config.visit_count_target) {
@@ -194,7 +209,7 @@ LoyaltyRuleSchema.pre('validate', function () {
     this.rewardDescription = this.reward.value;
   }
 
-  // event — auto set isActive based on event dates
+  // event — auto deactivate expired events
   if (this.loyaltyType === 'event' && this.config.event_end) {
     if (new Date(this.config.event_end) < new Date()) {
       this.isActive = false;

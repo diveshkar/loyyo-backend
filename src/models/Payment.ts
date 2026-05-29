@@ -1,13 +1,14 @@
 import { Schema, model, Document, Types } from 'mongoose';
+import { SHOP_PLANS, type ShopPlan } from './enums.js';
 
 export interface IPayment extends Document {
   shopId: Types.ObjectId;
-  plan: 'basic' | 'standard' | 'premium';
-  amount: number; // In LKR
-  currency: string; // 'LKR'
+  plan: ShopPlan;
+  amount: number;
+  currency: string;
   status: 'pending' | 'paid' | 'failed' | 'refunded';
-  payhereReference?: string; // Transaction reference from PayHere
-  payherePaymentId?: string; // Payment ID from PayHere
+  payhereReference?: string;
+  payherePaymentId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -22,7 +23,7 @@ const PaymentSchema = new Schema<IPayment>(
     },
     plan: {
       type: String,
-      enum: ['basic', 'standard', 'premium'],
+      enum: SHOP_PLANS,
       required: [true, 'Subscription plan is required'],
     },
     amount: {

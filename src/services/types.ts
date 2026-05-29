@@ -20,21 +20,23 @@ import type { UsedByDevice } from '../models/enums.js';
 
 export type EntityId       = string | Types.ObjectId;
 export type UserRole       = 'customer' | 'shop' | 'admin';
-export type ShopPlan       = 'free' | 'basic' | 'standard' | 'premium';
+export type ShopPlan = 'micro' | 'free' | 'basic' | 'standard' | 'premium';
 export type ShopStatus     = 'pending' | 'active' | 'suspended';
-export type ShopType       =
+export type ShopType =
   | 'tea_shop' | 'salon'       | 'restaurant'
   | 'supermarket' | 'clothing' | 'electronics'
   | 'gym' | 'pharmacy'         | 'grocery'
-  | 'bakery' | 'other';
-export type PaymentPlan    = 'basic' | 'standard' | 'premium';
+  | 'bakery' | 'home_bakery'   | 'home_kitchen'
+  | 'home_salon' | 'home_tuition' | 'handmade'
+  | 'reseller' | 'other';
+  export type PaymentPlan = 'micro' | 'basic' | 'standard' | 'premium';
 export type PaymentStatus  = 'pending' | 'paid' | 'failed' | 'refunded';
 export type AdType         = 'internal' | 'boost' | 'external';
 export type PosterStyle    = 'modern' | 'playful' | 'elegant' | 'bold';
 export type LoyaltyType    = 'visit' | 'points' | 'spend' | 'product' | 'hybrid' | 'tier' | 'referral' | 'event';
 export type RewardType     = 'free_item' | 'percent_discount' | 'fixed_discount' | 'cashback' | 'voucher' | 'buy_x_get_y';
 export type DiscountType   = 'percent' | 'free_item' | 'fixed' | 'cashback';
-export type MarkedByMethod = 'qr_scan' | 'barcode_scan' | 'kiosk' | 'plugin' | 'manual';
+export type MarkedByMethod = 'qr_scan' | 'barcode_scan' | 'kiosk' | 'plugin' | 'manual' | 'order_code';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SHARED
@@ -180,6 +182,53 @@ export interface RotateShopApiTokenInput {
 export interface RotateShopApiTokenResult {
   token:     string;
   rotatedAt: Date;
+}
+
+export interface GetSubscriptionStatusInput {
+  ownerId: EntityId;
+}
+
+export interface GetSubscriptionStatusResult {
+  plan:        ShopPlan;
+  expiresAt?:  Date;
+  isExpired:   boolean;
+  daysLeft?:   number;
+  memberCount: number;
+  memberLimit: number | null;
+}
+
+export interface SearchShopsToJoinInput extends PaginationInput {
+  customerId: EntityId;
+  query?:     string;
+  type?:      ShopType;
+  category?:  string;
+}
+
+export interface GetServiceListInput {
+  ownerId: EntityId;
+}
+
+export interface CreateServiceInput {
+  ownerId:      EntityId;
+  name:         string;
+  description?: string;
+  addons?:      Array<{ name: string; price: number; isVisible?: boolean }>;
+  products?:    Array<{ productId: string; name: string; price: number; points: number; isVisible?: boolean }>;
+}
+
+export interface UpdateServiceInput {
+  ownerId:      EntityId;
+  serviceId:    EntityId;
+  name?:        string;
+  description?: string;
+  addons?:      Array<{ name: string; price: number; isVisible?: boolean }>;
+  products?:    Array<{ productId: string; name: string; price: number; points: number; isVisible?: boolean }>;
+  isActive?:    boolean;
+}
+
+export interface DeleteServiceInput {
+  ownerId:   EntityId;
+  serviceId: EntityId;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -369,6 +418,28 @@ export interface GetShopOffersInput extends PaginationInput {
 
 export interface CustomerOffersInput extends PaginationInput {
   customerId: EntityId;
+}
+
+export interface DeleteOfferInput {
+  ownerId: EntityId;
+  offerId: EntityId;
+}
+
+export interface GetOfferByIdInput {
+  offerId: EntityId;
+}
+
+export interface GetShopOfferByIdInput {
+  ownerId: EntityId;
+  offerId: EntityId;
+}
+
+export interface BoostOfferAsAdInput {
+  ownerId:      EntityId;
+  offerId:      EntityId;
+  weeklyBudget: number;
+  endDate:      Date;
+  startDate?:   Date;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
