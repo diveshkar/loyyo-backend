@@ -39,10 +39,14 @@ export const protect = async (
       return next(new AppError('Invalid or expired token. Please log in again.', 401));
     }
 
-    // 3. Check if user still exists
+    // 3. Check if user still exists and is active
     const currentUser = await User.findById(decoded.id);
     if (!currentUser) {
       return next(new AppError('The user belonging to this token no longer exists.', 401));
+    }
+
+    if (!currentUser.isActive) {
+      return next(new AppError('Your account has been deactivated. Please contact support.', 403));
     }
 
     // 4. Grant access to protected route and attach user to request object

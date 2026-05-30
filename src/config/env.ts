@@ -31,6 +31,9 @@ const envSchema = Joi.object({
   CLOUDINARY_API_KEY: Joi.string().required(),
   CLOUDINARY_API_SECRET: Joi.string().required(),
   HUGGING_FACE_API_KEY: Joi.string().required(),
+  OPENAI_API_KEY:       Joi.string().required(),
+  FRONTEND_URL:         Joi.string().uri().required().description('Frontend base URL for redirect links'),
+  API_URL:              Joi.string().uri().required().description('Backend base URL for webhook notify_url'),
 }).unknown(true);
 
 const { value: envVars, error } = envSchema.validate(process.env);
@@ -69,5 +72,12 @@ export const env = {
   },
   huggingFace: {
     apiKey: envVars.HUGGING_FACE_API_KEY as string,
+  },
+  openai: {
+    apiKey: envVars.OPENAI_API_KEY as string,
+  },
+  app: {
+    frontendUrl: envVars.FRONTEND_URL as string,
+    apiUrl:      envVars.API_URL      as string,
   },
 };

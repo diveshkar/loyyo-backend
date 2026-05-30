@@ -90,18 +90,20 @@ export interface LoginInput {
 }
 
 export interface RegisterShopInput {
-  ownerName:   string;
-  ownerEmail:  string;
-  password:    string;
-  phone?:      string;
-  shopName:    string;
-  description: string;
-  type?:       ShopType;
-  category?:   string;
-  address:     string;
-  longitude:   number;
-  latitude:    number;
-  logoUrl?:    string;
+  ownerName:    string;
+  ownerEmail:   string;
+  password:     string;
+  phone?:       string;
+  shopName:     string;
+  description:  string;
+  businessType: 'physical' | 'home';
+  type?:        ShopType;
+  category?:    string;
+  address?:     string;       // optional — home businesses may not provide
+  longitude?:   number;       // optional — home businesses have no location
+  latitude?:    number;       // optional — home businesses have no location
+  logoUrl?:     string;
+  isAddressPublic?: boolean;  // home businesses can hide their address
 }
 
 export interface RefreshTokenInput {
@@ -379,6 +381,70 @@ export interface VerifyCheckinTokenInput {
   token:        string;
   shopId:       EntityId;
   usedByDevice: UsedByDevice;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHECKIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface GenerateCheckinTokenInput {
+  customerId: EntityId;
+  shopId?:    EntityId;
+}
+
+export interface GenerateCheckinTokenResult {
+  token:         string;
+  qrFormat:      string;
+  barcodeFormat: string;
+  expiresAt:     Date;
+}
+
+export interface GenerateOrderCodeInput {
+  customerId: EntityId;
+  shopId:     EntityId;
+}
+
+export interface GenerateOrderCodeResult {
+  orderCode: string;
+  expiresAt: Date;
+}
+
+export interface VerifyCheckinTokenInput {
+  token:           string;
+  shopId:          EntityId;
+  usedByDevice:    UsedByDevice;
+  serviceId?:      EntityId;
+  spendAmount?:    number;
+  productsBought?: Array<{
+    productId?:  string;
+    productName: string;
+    quantity:    number;
+    points?:     number;
+  }>;
+}
+
+export interface VerifyOrderCodeInput {
+  orderCode:       string;
+  shopId:          EntityId;
+  serviceId?:      EntityId;
+  spendAmount?:    number;
+  productsBought?: Array<{
+    productId?:  string;
+    productName: string;
+    quantity:    number;
+    points?:     number;
+  }>;
+}
+
+export interface CheckinVerifyResult {
+  membership:    IMembership;
+  visit:         IVisit;
+  rewardsEarned: INotification[];
+  pointsEarned:  number;
+  customer: {
+    name:  string;
+    email: string;
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

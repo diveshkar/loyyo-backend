@@ -3,6 +3,7 @@ import { Types } from 'mongoose';
 import { AppError } from '../middleware/errorHandler.js';
 import { Membership } from '../models/Membership.js';
 import { Offer } from '../models/Offer.js';
+import { PosterUsage } from '../models/PosterUsage.js';
 import { Service } from '../models/Service.js';
 import { Shop, type IShop } from '../models/Shop.js';
 import { Visit } from '../models/Visit.js';
@@ -27,10 +28,10 @@ import type {
 import { IService } from '../models/Service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PLAN LIMITS
+// PLAN LIMITS & FEATURES
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PLAN_SERVICE_LIMITS: Record<string, number | null> = {
+export const PLAN_SERVICE_LIMITS: Record<string, number | null> = {
   micro:    1,
   free:     2,
   basic:    5,
@@ -38,12 +39,60 @@ const PLAN_SERVICE_LIMITS: Record<string, number | null> = {
   premium:  null, // unlimited
 };
 
-const PLAN_MEMBER_LIMITS: Record<string, number | null> = {
+export const PLAN_MEMBER_LIMITS: Record<string, number | null> = {
   micro:    50,
   free:     null,
   basic:    null,
   standard: null,
   premium:  null,
+};
+
+export const PLAN_OFFER_LIMITS: Record<string, number | null> = {
+  micro:    1,
+  free:     2,
+  basic:    5,
+  standard: 20,
+  premium:  null, // unlimited
+};
+
+export const PLAN_AD_LIMITS: Record<string, number | null> = {
+  micro:    0,
+  free:     0,
+  basic:    2,
+  standard: 5,
+  premium:  null, // unlimited
+};
+
+// Plans that can use AI poster generation
+export const PLAN_AI_POSTER_ALLOWED = new Set(['basic', 'standard', 'premium']);
+
+// Monthly AI poster generation limits (null = unlimited)
+export const PLAN_AI_POSTER_MONTHLY_LIMITS: Record<string, number | null> = {
+  micro:    0,
+  free:     0,
+  basic:    5,
+  standard: 15,
+  premium:  null, // unlimited
+};
+
+// Plans that can use POS API key
+export const PLAN_POS_ALLOWED = new Set(['basic', 'standard', 'premium']);
+
+// Plans restricted to visit-only loyalty
+export const PLAN_VISIT_ONLY_LOYALTY = new Set(['micro', 'free']);
+
+/**
+ * Throws if the shop's paid plan has expired.
+ * Free plan never expires — skip the check for it.
+ */
+export const assertPlanNotExpired = (shop: { plan: string; planExpiresAt?: Date | null }): void => {
+  if (shop.plan === 'free') return;
+  if (shop.planExpiresAt && shop.planExpiresAt < new Date()) {
+    throw new AppError(
+      'Your subscription has expired. Please renew your plan to continue using this feature.',
+      403
+    );
+  }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -182,14 +231,26 @@ export const getShopStats = async (input: ShopStatsInput): Promise<ShopStatsResu
 export const rotateShopApiToken = async (
   input: RotateShopApiTokenInput
 ): Promise<RotateShopApiTokenResult> => {
+  const shop = await getCurrentShopProfile({ ownerId: input.ownerId });
+
+  // POS API key only available on basic plan and above
+  if (!PLAN_POS_ALLOWED.has(shop.plan)) {
+    throw new AppError(
+      `POS API key access requires the Basic plan or above. Your current plan is ${shop.plan}.`,
+      403
+    );
+  }
+
+  assertPlanNotExpired(shop);
+
   const token = `loyyo_${crypto.randomBytes(32).toString('hex')}`;
-  const shop = await Shop.findOneAndUpdate(
+  const updated = await Shop.findOneAndUpdate(
     { ownerId: toObjectId(input.ownerId) },
     { $set: { apiKey: token } },
     { new: true }
   );
 
-  if (!shop) throw new AppError('Shop profile not found', 404);
+  if (!updated) throw new AppError('Shop profile not found', 404);
   return { token, rotatedAt: new Date() };
 };
 
@@ -282,6 +343,9 @@ export const createService = async (input: CreateServiceInput): Promise<IService
   const shop = await getCurrentShopProfile({ ownerId: input.ownerId });
   const shopId = shop._id as Types.ObjectId;
 
+  // plan expiry check
+  assertPlanNotExpired(shop);
+
   // plan service limit check
   const limit = PLAN_SERVICE_LIMITS[shop.plan];
   if (limit !== null) {
@@ -329,4 +393,44 @@ export const deleteService = async (input: DeleteServiceInput): Promise<void> =>
   );
 
   if (!service) throw new AppError('Service not found', 404);
+};
+
+export interface PosterUsageStatusResult {
+  used:       number;
+  limit:      number | null;  // null = unlimited
+  remaining:  number | null;  // null = unlimited
+  yearMonth:  string;
+  resetsOn:   string;         // first day of next month
+}
+
+export const getPosterUsageStatus = async (
+  input: CurrentShopInput
+): Promise<PosterUsageStatusResult> => {
+  const shop = await getCurrentShopProfile({ ownerId: input.ownerId });
+
+  assertPlanNotExpired(shop);
+
+  const monthlyLimit = PLAN_AI_POSTER_MONTHLY_LIMITS[shop.plan] ?? null;
+  const yearMonth    = new Date().toISOString().slice(0, 7); // "2026-05"
+
+  const usage = await PosterUsage.findOne({
+    shopId: shop._id,
+    yearMonth,
+  }).lean();
+
+  const used = usage?.count ?? 0;
+
+  // calculate first day of next month
+  const [year, month] = yearMonth.split('-').map(Number);
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear  = month === 12 ? year + 1 : year;
+  const resetsOn  = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+
+  return {
+    used,
+    limit:     monthlyLimit,
+    remaining: monthlyLimit === null ? null : Math.max(0, monthlyLimit - used),
+    yearMonth,
+    resetsOn,
+  };
 };

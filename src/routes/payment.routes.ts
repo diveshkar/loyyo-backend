@@ -10,7 +10,25 @@ import {
 
 const router = Router();
 
-router.post('/intent', protect, restrictTo('shop'), validate({ body: createPaymentIntentSchema }), paymentController.createPaymentIntent);
-router.post('/payhere/webhook', validate({ body: payHereWebhookSchema }), paymentController.handlePayHereWebhook);
+// shop owner creates a payment intent and gets the signed PayHere payload
+router.post('/intent',
+  protect,
+  restrictTo('shop'),
+  validate({ body: createPaymentIntentSchema }),
+  paymentController.createPaymentIntent
+);
+
+// shop owner views their own payment history
+router.get('/me',
+  protect,
+  restrictTo('shop'),
+  paymentController.getMyPayments
+);
+
+// PayHere calls this after checkout — no auth, signature verified internally
+router.post('/payhere/webhook',
+  validate({ body: payHereWebhookSchema }),
+  paymentController.handlePayHereWebhook
+);
 
 export default router;

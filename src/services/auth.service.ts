@@ -13,6 +13,7 @@ import type {
   AuthResult,
   AuthTokens,
   ChangePasswordInput,
+  EntityId,
   ForgotPasswordInput,
   LoginInput,
   LogoutInput,
@@ -148,6 +149,13 @@ export const registerShop = async (
   if (existingShop)
     throw new AppError('A shop with this name already exists', 409);
 
+  // physical shops require location
+  if (input.businessType === 'physical') {
+    if (!input.address || input.longitude === undefined || input.latitude === undefined) {
+      throw new AppError('Physical shops require address and location coordinates', 400);
+    }
+  }
+
   const passwordHash = await bcrypt.hash(input.password, 12);
   const owner = await User.create({
     name:  input.ownerName,
@@ -157,23 +165,34 @@ export const registerShop = async (
     role:  'shop',
   });
 
-  await Shop.create({
-    ownerId:     owner._id,
-    name:        input.shopName,
-    description: input.description,
-    category:    input.category,
-    type:        input.type ?? normalizeShopType(input.category),
-    logoUrl:     input.logoUrl,
-    address:     input.address,
-    locationLng: input.longitude,
-    locationLat: input.latitude,
-    location: {
+  const shopData: Record<string, unknown> = {
+    ownerId:      owner._id,
+    name:         input.shopName,
+    description:  input.description,
+    category:     input.category,
+    type:         input.type ?? normalizeShopType(input.category),
+    logoUrl:      input.logoUrl,
+    businessType: input.businessType,
+    status:       'pending',
+    plan:         input.businessType === 'home' ? 'micro' : 'free',
+  };
+
+  if (input.businessType === 'physical') {
+    shopData.address     = input.address;
+    shopData.locationLng = input.longitude;
+    shopData.locationLat = input.latitude;
+    shopData.location    = {
       type:        'Point',
       coordinates: [input.longitude, input.latitude],
-    },
-    status: 'pending',
-    plan:   'free',
-  });
+    };
+  }
+
+  if (input.businessType === 'home') {
+    shopData.isAddressPublic = input.isAddressPublic ?? false;
+    if (input.address) shopData.address = input.address;
+  }
+
+  await Shop.create(shopData);
 
   emailService
     .sendWelcomeEmail(owner.email, owner.name)
@@ -370,4 +389,27 @@ export const changePassword = async (
     { userId: user._id, revokedAt: { $exists: false } },
     { $set: { revokedAt: new Date() } }
   );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROFILE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getMe = async (userId: EntityId): Promise<IUser> => {
+  const user = await User.findById(userId.toString());
+  if (!user) throw new AppError('User not found', 404);
+  return user;
+};
+
+export const updateMe = async (
+  userId: EntityId,
+  updates: { name?: string; phone?: string }
+): Promise<IUser> => {
+  const user = await User.findByIdAndUpdate(
+    userId.toString(),
+    { $set: updates },
+    { new: true, runValidators: true }
+  );
+  if (!user) throw new AppError('User not found', 404);
+  return user;
 };

@@ -643,8 +643,16 @@ import { Shop }       from '../models/Shop.js';
 import { Ad, IAd }    from '../models/Ad.js';
 import { AuditLog }   from '../models/AuditLog.js';
 import { Membership } from '../models/Membership.js';
+import { PosterUsage } from '../models/PosterUsage.js';
 import { cloudinary } from '../config/cloudinary.js';
 import { InferenceClient } from '@huggingface/inference';
+import { AppError } from '../middleware/errorHandler.js';
+import {
+  assertPlanNotExpired,
+  PLAN_AD_LIMITS,
+  PLAN_AI_POSTER_ALLOWED,
+  PLAN_AI_POSTER_MONTHLY_LIMITS,
+} from './shop.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CLIENTS
@@ -956,10 +964,29 @@ export const createAdCampaign = async (input: CreateAdCampaignInput): Promise<IA
     ? undefined
     : await resolveShopId(ownerId!);
 
-  if (adType === 'boost') {
-    const shop = await Shop.findById(shopId).select('plan').lean();
-    if (!shop || shop.plan === 'free') {
-      throw new Error('Boost ads require an active paid plan');
+  if (shopId) {
+    const shop = await Shop.findById(shopId).select('plan planExpiresAt').lean();
+    if (!shop) throw new AppError('Shop not found', 404);
+
+    // plan expiry check
+    assertPlanNotExpired(shop);
+
+    // ad campaign limit check
+    const adLimit = PLAN_AD_LIMITS[shop.plan];
+    if (adLimit !== null) {
+      if (adLimit === 0) {
+        throw new AppError(
+          `Your ${shop.plan} plan does not include ad campaigns. Upgrade to Basic or above.`,
+          403
+        );
+      }
+      const activeAds = await Ad.countDocuments({ shopId, isActive: true });
+      if (activeAds >= adLimit) {
+        throw new AppError(
+          `Your ${shop.plan} plan allows a maximum of ${adLimit} active ad campaign${adLimit === 1 ? '' : 's'}. Upgrade to add more.`,
+          403
+        );
+      }
     }
   }
 
@@ -1119,6 +1146,7 @@ export const generatePoster = async (
   input: GeneratePosterInput
 ): Promise<GeneratePosterResult> => {
   const {
+    ownerId,
     shopName,
     offerText,
     tagline,
@@ -1126,6 +1154,39 @@ export const generatePoster = async (
     style        = 'modern',
     extraContext,
   } = input;
+
+  // plan check + monthly usage limit
+  const shop = await Shop.findOne({
+    ownerId: new Types.ObjectId(ownerId.toString()),
+  }).select('_id plan planExpiresAt').lean();
+
+  if (!shop) throw new AppError('Shop not found', 404);
+
+  assertPlanNotExpired(shop);
+
+  if (!PLAN_AI_POSTER_ALLOWED.has(shop.plan)) {
+    throw new AppError(
+      `AI poster generation requires the Basic plan or above. Your current plan is ${shop.plan}.`,
+      403
+    );
+  }
+
+  const monthlyLimit = PLAN_AI_POSTER_MONTHLY_LIMITS[shop.plan];
+  if (monthlyLimit !== null) {
+    const yearMonth = new Date().toISOString().slice(0, 7); // "2026-05"
+    const usage = await PosterUsage.findOne({
+      shopId: shop._id,
+      yearMonth,
+    }).lean();
+
+    const used = usage?.count ?? 0;
+    if (used >= monthlyLimit) {
+      throw new AppError(
+        `You have used all ${monthlyLimit} AI poster generation${monthlyLimit === 1 ? '' : 's'} for this month. Resets on the 1st of next month or upgrade your plan for more.`,
+        429
+      );
+    }
+  }
 
   // Translate all inputs to English in parallel
   // Handles Sinhala, Tamil, Thanglish, or already English
@@ -1153,6 +1214,14 @@ export const generatePoster = async (
   console.log('Generating poster with GPT Image 1.5...');
   const buffer   = await callOpenAI(prompt);
   const imageUrl = await uploadBufferToCloudinary(buffer);
+
+  // increment monthly usage counter after successful generation
+  const yearMonth = new Date().toISOString().slice(0, 7);
+  await PosterUsage.findOneAndUpdate(
+    { shopId: shop._id, yearMonth },
+    { $inc: { count: 1 } },
+    { upsert: true, new: true }
+  );
 
   return {
     imageUrl,

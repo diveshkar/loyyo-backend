@@ -7,6 +7,7 @@ import { Shop, type IShop } from '../models/Shop.js';
 import { User, type IUser } from '../models/User.js';
 import { Visit } from '../models/Visit.js';
 import { AppError } from '../middleware/errorHandler.js';
+import * as emailService from './email.service.js';
 import type {
   AdminAdsInput,
   AdminApproveAdInput,
@@ -16,6 +17,7 @@ import type {
   AdminUsersInput,
   ApproveShopInput,
   AuditLogsInput,
+  EntityId,
   PaginatedResult,
   PlatformStatsResult,
   RemoveAdInput,
@@ -83,22 +85,40 @@ export const getAdminShops = async (
 };
 
 export const approveShop = async (input: ApproveShopInput): Promise<IShop> => {
-  const shop = await Shop.findById(input.shopId);
+  const shop = await Shop.findById(input.shopId).populate('ownerId', 'name email');
   if (!shop) throw new AppError('Shop not found', 404);
   const before = { status: shop.status };
   shop.status = 'active';
   await shop.save();
   await audit(input.adminId, 'SHOP_APPROVED', 'shop', shop._id as Types.ObjectId, before, { status: shop.status }, 'Shop approved', input.ip);
+
+  // notify shop owner by email
+  const owner = shop.ownerId as unknown as IUser;
+  if (owner?.email) {
+    emailService
+      .sendShopApprovalEmail(owner.email, shop.name)
+      .catch((err) => console.error('Failed to send shop approval email:', err));
+  }
+
   return shop;
 };
 
 export const suspendShop = async (input: SuspendShopInput): Promise<IShop> => {
-  const shop = await Shop.findById(input.shopId);
+  const shop = await Shop.findById(input.shopId).populate('ownerId', 'name email');
   if (!shop) throw new AppError('Shop not found', 404);
   const before = { status: shop.status };
   shop.status = 'suspended';
   await shop.save();
   await audit(input.adminId, 'SHOP_SUSPENDED', 'shop', shop._id as Types.ObjectId, before, { status: shop.status }, input.reason, input.ip);
+
+  // notify shop owner by email
+  const owner = shop.ownerId as unknown as IUser;
+  if (owner?.email) {
+    emailService
+      .sendShopSuspensionEmail(owner.email, shop.name, input.reason)
+      .catch((err) => console.error('Failed to send shop suspension email:', err));
+  }
+
   return shop;
 };
 
@@ -252,4 +272,73 @@ export const getPlatformStats = async (): Promise<PlatformStatsResult> => {
     revenue: paidPayments.reduce((sum, p) => sum + p.amount, 0),
     activeAds,
   };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEACTIVATE USER
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const deactivateUser = async (input: {
+  adminId: EntityId;
+  userId:  EntityId;
+  reason:  string;
+  ip?:     string;
+}): Promise<IUser> => {
+  const user = await User.findById(input.userId.toString());
+  if (!user) throw new AppError('User not found', 404);
+  if (!user.isActive) throw new AppError('User is already deactivated', 400);
+
+  const before = { isActive: user.isActive };
+  user.isActive = false;
+  await user.save();
+
+  await audit(
+    input.adminId,
+    'USER_DEACTIVATED',
+    'user',
+    user._id as Types.ObjectId,
+    before,
+    { isActive: false },
+    input.reason,
+    input.ip
+  );
+
+  return user;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REFUND PAYMENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const refundPayment = async (input: {
+  adminId:   EntityId;
+  paymentId: EntityId;
+  reason:    string;
+  ip?:       string;
+}): Promise<IPayment> => {
+  const payment = await Payment.findById(input.paymentId.toString());
+  if (!payment) throw new AppError('Payment not found', 404);
+  if (payment.status !== 'paid') throw new AppError('Only paid payments can be refunded', 400);
+
+  const before = { status: payment.status };
+  payment.status = 'refunded';
+  await payment.save();
+
+  // downgrade shop back to free plan
+  await Shop.findByIdAndUpdate(payment.shopId, {
+    $set: { plan: 'free', planExpiresAt: null },
+  });
+
+  await audit(
+    input.adminId,
+    'PAYMENT_REFUNDED',
+    'payment',
+    payment._id as Types.ObjectId,
+    before,
+    { status: 'refunded' },
+    input.reason,
+    input.ip
+  );
+
+  return payment;
 };

@@ -72,3 +72,17 @@ export const changePassword = asyncHandler(async (req, res) => {
   });
   sendSuccess(res, { message: 'Password changed successfully' });
 });
+
+// ─── PROFILE ──────────────────────────────────────────────────────────────────
+
+export const getMe = asyncHandler(async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const result  = await authService.getMe(authReq.user!._id);
+  sendSuccess(res, result);
+});
+
+export const updateMe = asyncHandler(async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const result  = await authService.updateMe(authReq.user!._id, req.body);
+  sendSuccess(res, result);
+});

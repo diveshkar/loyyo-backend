@@ -3,6 +3,7 @@ import * as adController from '../controllers/ad.controller.js';
 import { protect } from '../middleware/auth.js';
 import { restrictTo } from '../middleware/role.js';
 import { validate } from '../middleware/validate.js';
+import { aiPosterLimiter } from '../middleware/rateLimit.js';
 import {
   adFeedQuerySchema,
   adIdParamSchema,
@@ -54,6 +55,7 @@ router.post('/external/submit',
 router.post('/poster/generate',
   protect,
   restrictTo('shop'),
+  aiPosterLimiter,
   validate({ body: generatePosterSchema }),
   adController.generatePoster
 );
@@ -61,6 +63,7 @@ router.post('/poster/generate',
 router.post('/poster/detect',
   protect,
   restrictTo('shop'),
+  aiPosterLimiter,
   validate({ body: detectObjectSchema }),
   adController.detectObject
 );
@@ -68,6 +71,7 @@ router.post('/poster/detect',
 router.post('/poster/inpaint',
   protect,
   restrictTo('shop'),
+  aiPosterLimiter,
   validate({ body: inpaintPosterSchema }),
   adController.inpaintPoster
 );
@@ -75,6 +79,7 @@ router.post('/poster/inpaint',
 router.post('/poster/regenerate',
   protect,
   restrictTo('shop'),
+  aiPosterLimiter,
   validate({ body: regeneratePosterSchema }),
   adController.regeneratePoster
 );

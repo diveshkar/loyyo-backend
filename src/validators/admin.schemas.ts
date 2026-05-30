@@ -74,3 +74,23 @@ export const auditLogsQuerySchema = Joi.object({
   ...dateRangeQuery,
   ...paginationQuery,
 });
+
+// ─── USERS ────────────────────────────────────────────────────────────────────
+
+export const adminUserIdParamSchema = Joi.object({
+  id: objectId.required(),
+});
+
+export const deactivateUserSchema = Joi.object({
+  reason: Joi.string().trim().min(2).max(1000).required(),
+});
+
+// ─── PAYMENTS ─────────────────────────────────────────────────────────────────
+
+export const adminPaymentIdParamSchema = Joi.object({
+  id: objectId.required(),
+});
+
+export const refundPaymentSchema = Joi.object({
+  reason: Joi.string().trim().min(2).max(1000).required(),
+});

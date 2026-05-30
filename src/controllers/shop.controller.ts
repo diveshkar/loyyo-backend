@@ -104,3 +104,9 @@ export const deleteService = asyncHandler(async (req, res) => {
   });
   sendSuccess(res, { deleted: true });
 });
+
+export const getPosterUsageStatus = asyncHandler(async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const result  = await shopService.getPosterUsageStatus({ ownerId: authReq.user!._id });
+  sendSuccess(res, result);
+});

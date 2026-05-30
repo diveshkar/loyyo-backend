@@ -9,6 +9,10 @@ import { Shop } from '../models/Shop.js';
 import { IUser, User } from '../models/User.js';
 import { Visit, type IVisit } from '../models/Visit.js';
 import type { MarkedByMethod } from '../models/enums.js';
+import {
+  assertPlanNotExpired,
+  PLAN_VISIT_ONLY_LOYALTY,
+} from './shop.service.js';
 import type {
   CreateOrUpdateLoyaltyRuleInput,
   CustomerMembershipInput,
@@ -371,6 +375,12 @@ const processVisit = async (
 
   await evaluateTierUpgrade(updatedMembership, updatedMembership.totalPoints);
 
+  // complete referral on first visit only
+  if (updatedMembership.totalVisits === 1) {
+    const { completeReferral } = await import('./referral.service.js');
+    await completeReferral(customerId, shopId).catch(() => {});
+  }
+
   await Notification.create({
     customerId,
     shopId,
@@ -398,14 +408,17 @@ export const createOrUpdateRuleForOwner = async (
 ): Promise<ILoyaltyRule> => {
   const shopId = await resolveShopId(input.ownerId);
 
-  // micro/home plan guard — only visit loyalty allowed
-  const shop = await Shop.findById(shopId).select('plan businessType').lean();
-  if (shop && (shop.plan === 'micro' || shop.businessType === 'home')) {
-    if (input.loyaltyType !== 'visit') {
-      throw new AppError(
-        'Home businesses on the micro plan can only use visit-based loyalty rules',
-        403
-      );
+  // plan guard — free/micro can only use visit-based loyalty
+  const shop = await Shop.findById(shopId).select('plan businessType planExpiresAt').lean();
+  if (shop) {
+    assertPlanNotExpired(shop);
+    if (PLAN_VISIT_ONLY_LOYALTY.has(shop.plan) || shop.businessType === 'home') {
+      if (input.loyaltyType !== 'visit') {
+        throw new AppError(
+          `Your ${shop.plan} plan only supports visit-based loyalty rules. Upgrade to Basic or above for advanced loyalty types.`,
+          403
+        );
+      }
     }
   }
 

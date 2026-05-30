@@ -5,18 +5,28 @@ import { getClientIp, sendSuccess } from '../utils/http.js';
 
 export const createPaymentIntent = asyncHandler(async (req, res) => {
   const authReq = req as AuthenticatedRequest;
-  const result = await paymentService.createPaymentIntent({
+  const result  = await paymentService.createPaymentIntent({
     ownerId: authReq.user!._id,
-    plan: req.body.plan,
+    plan:    req.body.plan,
   });
   sendSuccess(res, result, 201);
 });
 
 export const handlePayHereWebhook = asyncHandler(async (req, res) => {
   const result = await paymentService.handlePayHereWebhook({
-    payload: req.body,
+    payload:   req.body,
     signature: req.headers['x-payhere-signature'] as string | undefined,
-    ip: getClientIp(req),
+    ip:        getClientIp(req),
   });
+  sendSuccess(res, result);
+});
+
+export const getMyPayments = asyncHandler(async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const result  = await paymentService.getMyPayments(
+    authReq.user!._id,
+    Number(req.query.page)  || 1,
+    Number(req.query.limit) || 20
+  );
   sendSuccess(res, result);
 });

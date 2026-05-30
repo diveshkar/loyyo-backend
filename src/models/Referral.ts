@@ -3,7 +3,7 @@ import { REFERRAL_STATUSES, type ReferralStatus } from './enums.js';
 
 export interface IReferral extends Document {
   referrerId: Types.ObjectId;
-  refereeId: Types.ObjectId;
+  refereeId?: Types.ObjectId;
   shopId: Types.ObjectId;
   referralCode: string;
   status: ReferralStatus;
@@ -25,7 +25,6 @@ const ReferralSchema = new Schema<IReferral>(
     refereeId: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      required: [true, 'Referee ID is required'],
       index: true,
     },
     shopId: {
@@ -50,13 +49,15 @@ const ReferralSchema = new Schema<IReferral>(
     },
     referrerPoints: {
       type: Number,
-      required: true,
+      required: false,
       min: 0,
+      default: 0,
     },
     refereePoints: {
       type: Number,
-      required: true,
+      required: false,
       min: 0,
+      default: 0,
     },
     completedAt: {
       type: Date,

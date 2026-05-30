@@ -4,6 +4,11 @@ import { Ad } from '../models/Ad.js';
 import { Membership } from '../models/Membership.js';
 import { Offer, type IOffer } from '../models/Offer.js';
 import { Shop } from '../models/Shop.js';
+import {
+  assertPlanNotExpired,
+  PLAN_OFFER_LIMITS,
+  PLAN_AD_LIMITS,
+} from './shop.service.js';
 import type {
   BoostOfferAsAdInput,
   CreateOfferInput,
@@ -122,6 +127,23 @@ export const getShopOfferById = async (input: GetShopOfferByIdInput): Promise<IO
 
 export const createOffer = async (input: CreateOfferInput): Promise<IOffer> => {
   const shopId = await resolveShopId(input.ownerId);
+  const shop   = await Shop.findById(shopId).select('plan planExpiresAt').lean();
+  if (!shop) throw new AppError('Shop not found', 404);
+
+  // plan expiry check
+  assertPlanNotExpired(shop);
+
+  // plan offer limit check
+  const limit = PLAN_OFFER_LIMITS[shop.plan];
+  if (limit !== null) {
+    const count = await Offer.countDocuments({ shopId, isActive: true });
+    if (count >= limit) {
+      throw new AppError(
+        `Your ${shop.plan} plan allows a maximum of ${limit} active offer${limit === 1 ? '' : 's'}. Upgrade to add more.`,
+        403
+      );
+    }
+  }
 
   return Offer.create({
     shopId,
@@ -165,6 +187,29 @@ export const deleteOffer = async (input: DeleteOfferInput): Promise<void> => {
 
 export const boostOfferAsAd = async (input: BoostOfferAsAdInput): Promise<IAd> => {
   const shopId = await resolveShopId(input.ownerId);
+  const shop   = await Shop.findById(shopId).select('plan planExpiresAt').lean();
+  if (!shop) throw new AppError('Shop not found', 404);
+
+  // plan expiry check
+  assertPlanNotExpired(shop);
+
+  // ad campaign limit check
+  const adLimit = PLAN_AD_LIMITS[shop.plan];
+  if (adLimit !== null) {
+    if (adLimit === 0) {
+      throw new AppError(
+        `Your ${shop.plan} plan does not include ad campaigns. Upgrade to Basic or above.`,
+        403
+      );
+    }
+    const activeAds = await Ad.countDocuments({ shopId, isActive: true });
+    if (activeAds >= adLimit) {
+      throw new AppError(
+        `Your ${shop.plan} plan allows a maximum of ${adLimit} active ad campaign${adLimit === 1 ? '' : 's'}. Upgrade to add more.`,
+        403
+      );
+    }
+  }
 
   const offer = await Offer.findOne({
     _id:      toObjectId(input.offerId),

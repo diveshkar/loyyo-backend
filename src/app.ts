@@ -10,11 +10,15 @@ import adminRoutes from './routes/admin.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import loyaltyRoutes from './routes/loyalty.routes.js';
 import memberRoutes from './routes/member.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
 import offerRoutes from './routes/offer.routes.js';
 import paymentRoutes from './routes/payment.routes.js';
+import pointsRoutes from './routes/points.routes.js';
 import posRoutes from './routes/pos.routes.js';
-import rewardRoutes from './routes/reward.routes.js';
+import referralRoutes from './routes/referral.routes.js';
 import shopRoutes from './routes/shop.routes.js';
+import tierRoutes from './routes/tier.routes.js';
+import checkinRoutes from './routes/checkin.routes.js';
 
 export const app = express();
 
@@ -50,16 +54,20 @@ app.get('/health', (_req, res) => {
 
 const apiPrefix = '/api/v1';
 
-app.use(`${apiPrefix}/auth`, authRoutes);
-app.use(`${apiPrefix}/shops`, shopRoutes);
-app.use(`${apiPrefix}/members`, memberRoutes);
-app.use(`${apiPrefix}/loyalty`, loyaltyRoutes);
-app.use(`${apiPrefix}/rewards`, rewardRoutes);
-app.use(`${apiPrefix}/offers`, offerRoutes);
-app.use(`${apiPrefix}/ads`, adRoutes);
-app.use(`${apiPrefix}/payments`, paymentRoutes);
-app.use(`${apiPrefix}/pos`, posRoutes);
-app.use(`${apiPrefix}/admin`, adminRoutes);
+app.use(`${apiPrefix}/auth`,          authRoutes);
+app.use(`${apiPrefix}/shops`,         shopRoutes);
+app.use(`${apiPrefix}/members`,       memberRoutes);
+app.use(`${apiPrefix}/loyalty`,       loyaltyRoutes);
+app.use(`${apiPrefix}/offers`,        offerRoutes);
+app.use(`${apiPrefix}/ads`,           adRoutes);
+app.use(`${apiPrefix}/payments`,      paymentRoutes);
+app.use(`${apiPrefix}/pos`,           posRoutes);
+app.use(`${apiPrefix}/referrals`,     referralRoutes);
+app.use(`${apiPrefix}/notifications`, notificationRoutes);
+app.use(`${apiPrefix}/points`,        pointsRoutes);
+app.use(`${apiPrefix}/tier`,          tierRoutes);
+app.use(`${apiPrefix}/admin`,         adminRoutes);
+app.use(`${apiPrefix}/checkin`,       checkinRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

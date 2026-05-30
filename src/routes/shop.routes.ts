@@ -24,6 +24,7 @@ router.patch('/me', protect, restrictTo('shop'), validate({ body: updateShopProf
 router.get('/me/stats', protect, restrictTo('shop'), validate({ query: shopStatsQuerySchema }), shopController.getShopStats);
 router.get('/me/members', protect, restrictTo('shop'), validate({ query: shopMembersQuerySchema }), memberController.getShopMembers);
 router.get('/me/subscription', protect, restrictTo('shop'), shopController.getSubscriptionStatus);
+router.get('/me/poster-usage', protect, restrictTo('shop'), shopController.getPosterUsageStatus);
 router.post('/me/api-token/rotate', protect, restrictTo('shop'), shopController.rotateShopApiToken);
 router.get('/me/services', protect, restrictTo('shop'), shopController.getServiceList);
 router.post('/me/services', protect, restrictTo('shop'), validate({ body: createServiceSchema }), shopController.createService);

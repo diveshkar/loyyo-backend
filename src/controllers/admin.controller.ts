@@ -129,3 +129,25 @@ export const getPlatformStats = asyncHandler(async (_req, res) => {
   const result = await adminService.getPlatformStats();
   sendSuccess(res, result);
 });
+
+export const deactivateUser = asyncHandler(async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const result  = await adminService.deactivateUser({
+    adminId: authReq.user!._id,
+    userId:  String(req.params.id),
+    reason:  req.body.reason,
+    ip:      getClientIp(req),
+  });
+  sendSuccess(res, result);
+});
+
+export const refundPayment = asyncHandler(async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const result  = await adminService.refundPayment({
+    adminId:   authReq.user!._id,
+    paymentId: String(req.params.id),
+    reason:    req.body.reason,
+    ip:        getClientIp(req),
+  });
+  sendSuccess(res, result);
+});
